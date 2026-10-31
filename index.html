@@ -202,7 +202,8 @@ const st = {
   sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, planDay:null,
   view:"avui", weekRef:monday(todayStr()), plaTab:"home", chartRange:12, stale:false,
   garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false},
-  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:""
+  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"",
+  push:{supported:false, on:false, hour:8}
 };
 let refs = null;
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -324,6 +325,7 @@ async function loadAll(){
   COLLS.forEach(c=>st[c]=fresh[c]); st.profile=prof; st.profileLoaded=true; st.stale=false;
 }
 async function boot(){
+  initPush();
   if(!window.supabase){ st.mode="error"; render(); return; }
   sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   const {data:{session}}=await sb.auth.getSession();
@@ -335,8 +337,57 @@ async function startSession(session){
   st.uid=session.user.id; st.email=session.user.email; st.mode="loading"; render();
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
-  render(); loadCoach().then(render); syncGarmin(false);
+  render(); loadCoach().then(render); loadPush().then(render); syncGarmin(false);
+  if(/[?&]morning=1/.test(location.search)){ history.replaceState(null,"",location.pathname); if(!st.viewUid) sheetMorning(todayStr()); }
 }
+/* ---------------- recordatori (notificacions) ---------------- */
+let swReg=null;
+const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent), isStandalone=window.matchMedia&&matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+async function initPush(){
+  st.push.supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if(!("serviceWorker" in navigator)) return;
+  try{ swReg=await navigator.serviceWorker.register("sw.js"); }catch(e){ st.push.supported=false; return; }
+  navigator.serviceWorker.addEventListener("message",ev=>{ if(ev.data&&ev.data.type==="open"&&/morning=1/.test(ev.data.url||"")&&st.mode==="db"&&!st.viewUid) sheetMorning(todayStr()); });
+}
+async function loadPush(){
+  if(!st.push.supported||!swReg) return;
+  try{ const sub=await swReg.pushManager.getSubscription(); if(!sub){ st.push.on=false; return; }
+    const {data}=await sb.from("push_subs").select("hour").eq("endpoint",sub.endpoint).maybeSingle();
+    st.push.on=!!data; if(data) st.push.hour=data.hour; }catch(e){}
+}
+const b64u=s=>{ const p="=".repeat((4-s.length%4)%4), b=atob((s+p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(b,c=>c.charCodeAt(0)); };
+function sheetPush(){
+  const P=st.push; let h=sheetHead("Recordatori del qüestionari");
+  if(!P.supported){ h+=`<p class="mut" style="margin:6px 0 12px">${isIOS&&!isStandalone?"A l'iPhone, primer afegeix la web a la pantalla d'inici (Safari › Compartir › Afegir a la pantalla d'inici) i obre-la des d'allà.":"Aquest navegador no permet notificacions."}</p>`; openSheet(h); return; }
+  h+=`<p class="mut small" style="margin:6px 0 12px">Cada dia a l'hora que triïs, si encara no has fet el qüestionari del matí, et arribarà una notificació. Tocant-la s'obre directament.</p>
+  <div class="field"><label for="p-hour">Hora</label><select class="in-t" id="p-hour">${[5,6,7,8,9,10,11,12].map(x=>`<option value="${x}" ${P.hour===x?"selected":""}>${pad(x)}:00</option>`).join("")}</select></div>
+  <div class="err" id="p-err"></div>
+  <button class="btn pri block" data-act="pushOn">${P.on?"Guardar hora":"Activar recordatori"}</button>
+  ${P.on?`<button class="btn block" style="margin-top:8px" data-act="pushTest">Enviar una prova</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="pushOff">Desactivar</button>`:""}`;
+  openSheet(h);
+}
+async function pushOn(){
+  const err=document.querySelector("#p-err"), hour=Number(document.querySelector("#p-hour").value);
+  try{
+    const perm=await Notification.requestPermission();
+    if(perm!=="granted"){ err.textContent="Cal donar permís de notificacions al navegador."; return; }
+    let sub=await swReg.pushManager.getSubscription();
+    if(!sub){ const {data,error}=await sb.functions.invoke("push",{body:{action:"key"}}); if(error||!data?.publicKey) throw new Error("key");
+      sub=await swReg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(data.publicKey)}); }
+    const {error}=await sb.from("push_subs").upsert({endpoint:sub.endpoint,user_id:st.uid,sub:sub.toJSON(),hour});
+    if(error) throw error;
+    st.push.on=true; st.push.hour=hour; closeSheet(); render(); toast(`Recordatori a les ${pad(hour)}:00`);
+  }catch(e){ err.textContent=e.message==="key"?"El servidor de notificacions encara no està instal·lat.":"No s'ha pogut activar. Torna-ho a provar."; }
+}
+async function pushOff(){
+  try{ const sub=await swReg.pushManager.getSubscription(); if(sub){ await sb.from("push_subs").delete().eq("endpoint",sub.endpoint); await sub.unsubscribe(); } }catch(e){}
+  st.push.on=false; closeSheet(); render(); toast("Recordatori desactivat");
+}
+async function pushTest(){
+  const {data,error}=await sb.functions.invoke("push",{body:{action:"test"}});
+  toast(error?"No s'ha pogut enviar la prova.":data?.sent?"Prova enviada":"No s'ha trobat cap dispositiu.");
+}
+
 async function loadCoach(){
   try{
     const c=await sb.from("coaches").select("user_id").eq("user_id",st.uid).maybeSingle();
@@ -674,7 +725,7 @@ function vProfile(){
   if (st.isCoach){
     h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("viewAth","",esc(a.name||a.athlete_email||"Atleta"),(a.name?esc(a.athlete_email||"")+" · ":"")+(a.intervals_id?"Garmin ✓":"sense Garmin"),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
   }
-  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
+  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${row("pushCfg","","Recordatori del qüestionari",st.push.on?`Activat · ${pad(st.push.hour)}:00`:"Desactivat")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
   return h;
 }
 
@@ -1146,6 +1197,10 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "pushCfg": sheetPush(); break;
+    case "pushOn": pushOn(); break;
+    case "pushOff": pushOff(); break;
+    case "pushTest": pushTest(); break;
     case "cover": sheetPhoto("cover"); break;
     case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
