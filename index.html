@@ -412,7 +412,7 @@ async function doLogin(){
     else if(m==="up"){ const {data,error}=await sb.auth.signUp({email,password:pass,options:{emailRedirectTo:location.origin+location.pathname}}); if(error) throw error; if(data.session) startSession(data.session); else { err.style.color="var(--green)"; err.textContent="Revisa el correu i confirma el compte. Després torna aquí i entra."; } }
     else if(m==="reset"){ const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}); if(error) throw error; err.style.color="var(--green)"; err.textContent="T'hem enviat un enllaç per canviar la contrasenya."; }
     else if(m==="newpass"){ const {error}=await sb.auth.updateUser({password:pass}); if(error) throw error; st.loginMode="in"; const {data:{session}}=await sb.auth.getSession(); if(session) startSession(session); }
-  }catch(e){ err.style.color=""; err.textContent= /Invalid login/i.test(e.message||"")?"Correu o contrasenya incorrectes.":/confirm/i.test(e.message||"")?"Has de confirmar el correu abans d'entrar.":(e.message||"No s'ha pogut fer."); }
+  }catch(e){ err.style.color=""; err.textContent= /Invalid login/i.test(e.message||"")?"Correu o contrasenya incorrectes.":/confirm/i.test(e.message||"")?"Has de confirmar el correu abans d'entrar.":/rate limit/i.test(e.message||"")?"S'han enviat massa correus en poca estona. Torna-ho a provar d'aquí a una hora.":/already registered|already been registered/i.test(e.message||"")?"Aquest correu ja té un compte. Entra amb la contrasenya.":/at least 6|password/i.test(e.message||"")?"La contrasenya ha de tenir almenys 6 caràcters.":(e.message||"No s'ha pogut fer."); }
 }
 async function importJson(file){
   try{
