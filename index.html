@@ -287,9 +287,14 @@ function planned(ws){
   for(const d of DISC){ const h=num(p.h?.[DKEY[d]]), r=num(p.rpe?.[DKEY[d]]); if(h!=null){ any=true; H+=h; if(r!=null) L+=h*60*r*(c[d]??1); } }
   return any?{load:L,hours:H,p}:{load:null,hours:null,p};
 }
+function distTxt(d,wr,pl){
+  if(d==="Força") return "";
+  if(d==="Natació"){ const pm=num(pl?.p?.m); return ` · ${fmtN(wr.mSwim||0)}${pm!=null?` / ${fmtN(pm)}`:""} m`; }
+  const pk=d==="Carrera"?num(pl?.p?.km):null; return ` · ${r1(wr.kmD[d]||0)}${pk!=null?` / ${r1(pk)}`:""} km`;
+}
 function weekReal(ws){
-  const out={load:0,raw:0,min:0,byD:{},minD:{}}; const we=addD(ws,6);
-  for(const s of sessList()){ if(s.date<ws||s.date>we) continue; const l=loadOf(s); out.load+=l; out.raw+=rawOf(s); out.min+=s.min||0; out.byD[s.disc]=(out.byD[s.disc]||0)+l; out.minD[s.disc]=(out.minD[s.disc]||0)+(s.min||0); }
+  const out={load:0,raw:0,min:0,byD:{},minD:{},kmD:{},mSwim:0}; const we=addD(ws,6);
+  for(const s of sessList()){ if(s.date<ws||s.date>we) continue; const l=loadOf(s); out.load+=l; out.raw+=rawOf(s); out.min+=s.min||0; out.byD[s.disc]=(out.byD[s.disc]||0)+l; out.minD[s.disc]=(out.minD[s.disc]||0)+(s.min||0); if(s.disc==="Natació"){ const m=num(s.m); if(m) out.mSwim=(out.mSwim||0)+m; } else if(s.disc!=="Força"){ const k=num(s.km); if(k) out.kmD[s.disc]=(out.kmD[s.disc]||0)+k; } }
   return out;
 }
 
@@ -646,7 +651,7 @@ function vSetmana(){
   for (const d of DISC){
     const real=wr.byD[d]||0, ph=num(pl?.p?.h?.[DKEY[d]]), pr=num(pl?.p?.rpe?.[DKEY[d]]), plL = ph!=null&&pr!=null ? ph*60*pr*(coefs()[d]??1) : null;
     const mx=Math.max(real, plL||0, 1);
-    h+=`<div class="discrow"><span style="color:${DHEX[d]}">${ICON[d].replace("<svg",'<svg width="22" height="22"')}</span><div><div class="disclab"><span>${d} <span class="mut">${r1((wr.minD[d]||0)/60)} h${ph!=null?` / ${ph} h`:""}</span></span><span class="num">${fmtN(real)}${plL!=null?` <span class="mut">/ ${fmtN(plL)}</span>`:""}</span></div><div class="bar"><i style="width:${real/mx*100}%;background:${DHEX[d]}"></i>${plL!=null?`<span class="mark" style="left:calc(${plL/mx*100}% - 1px)"></span>`:""}</div></div><span></span></div>`;
+    h+=`<div class="discrow"><span style="color:${DHEX[d]}">${ICON[d].replace("<svg",'<svg width="22" height="22"')}</span><div><div class="disclab"><span>${d} <span class="mut">${r1((wr.minD[d]||0)/60)} h${ph!=null?` / ${ph} h`:""}${distTxt(d,wr,pl)}</span></span><span class="num">${fmtN(real)}${plL!=null?` <span class="mut">/ ${fmtN(plL)}</span>`:""}</span></div><div class="bar"><i style="width:${real/mx*100}%;background:${DHEX[d]}"></i>${plL!=null?`<span class="mark" style="left:calc(${plL/mx*100}% - 1px)"></span>`:""}</div></div><span></span></div>`;
   }
   h+=`</div><div class="row between small mut" style="margin-top:6px"><span>${r1(wr.min/60)} h reals${pl?.hours!=null?` / ${r1(pl.hours)} h plan.`:""}</span><button class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="editPlan" data-ws="${ws}">Editar pla</button></div></div>`;
   h+=`<div class="grid3" style="margin-top:10px"><div class="tile"><div class="lab">Aguda</div><div class="val">${fmtN(ac.a)}</div></div><div class="tile"><div class="lab">Crònica</div><div class="val">${fmtN(ac.c)}</div></div><div class="tile"><div class="lab">ACWR</div><div class="val" style="color:${z?z[1]:"var(--fg)"}">${ac.acwr!=null?ac.acwr.toFixed(2):"–"}</div><div class="sub">${z?z[0]:"–"}</div></div></div>`;
