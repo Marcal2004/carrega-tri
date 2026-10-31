@@ -359,7 +359,7 @@ const b64u=s=>{ const p="=".repeat((4-s.length%4)%4), b=atob((s+p).replace(/-/g,
 function sheetPush(){
   const P=st.push; let h=sheetHead("Recordatori del qüestionari");
   if(!P.supported){ h+=`<p class="mut" style="margin:6px 0 12px">${isIOS&&!isStandalone?"A l'iPhone, primer afegeix la web a la pantalla d'inici (Safari › Compartir › Afegir a la pantalla d'inici) i obre-la des d'allà.":"Aquest navegador no permet notificacions."}</p>`; openSheet(h); return; }
-  h+=`<p class="mut small" style="margin:6px 0 12px">Cada dia a l'hora que triïs, si encara no has fet el qüestionari del matí, et arribarà una notificació. Tocant-la s'obre directament.</p>
+  h+=`<p class="mut small" style="margin:6px 0 12px">Cada dia a l'hora que triïs, si encara no has fet el qüestionari del matí, t'arribarà una notificació. Tocant-la s'obre directament.</p>
   <div class="field"><label for="p-hour">Hora</label><select class="in-t" id="p-hour">${[5,6,7,8,9,10,11,12].map(x=>`<option value="${x}" ${P.hour===x?"selected":""}>${pad(x)}:00</option>`).join("")}</select></div>
   <div class="err" id="p-err"></div>
   <button class="btn pri block" data-act="pushOn">${P.on?"Guardar hora":"Activar recordatori"}</button>
