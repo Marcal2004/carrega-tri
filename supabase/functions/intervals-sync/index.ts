@@ -1,7 +1,7 @@
 // Càrrega Tri · intervals-sync
 // Llegeix activitats i wellness (VFC, son, pes) d'intervals.icu i els retorna a l'app.
 // La clau d'intervals.icu viu només als Secrets de Supabase (INTERVALS_API_KEY).
-// Només l'usuari amb el correu OWNER_EMAIL pot cridar-la.
+// L'entrenador (OWNER_EMAIL) i els atletes vinculats a coach_links amb intervals_id.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const cors = {
@@ -24,12 +24,22 @@ Deno.serve(async (req) => {
     const { data: { user }, error } = await sb.auth.getUser(token);
     if (error || !user) return json({ error: "auth" }, 401);
 
-    const owner = (Deno.env.get("OWNER_EMAIL") || "").trim().toLowerCase();
-    if (!owner || (user.email || "").toLowerCase() !== owner) return json({ error: "forbidden" }, 403);
-
     const key = Deno.env.get("INTERVALS_API_KEY") || Deno.env.get("Intervals_api_key");
-    const ath = Deno.env.get("INTERVALS_ATHLETE_ID") || "i607700";
     if (!key) return json({ error: "nokey" }, 500);
+
+    // L'entrenador (OWNER_EMAIL) llegeix el seu propi intervals.icu.
+    // Un atleta vinculat llegeix el seu intervals.icu a través de l'accés d'entrenador (clau de l'OWNER).
+    const owner = (Deno.env.get("OWNER_EMAIL") || "").trim().toLowerCase();
+    let ath = "";
+    if (owner && (user.email || "").toLowerCase() === owner) {
+      ath = Deno.env.get("INTERVALS_ATHLETE_ID") || "";
+    } else {
+      const sbU = createClient(Deno.env.get("SUPABASE_URL")!, anon, { global: { headers: { Authorization: `Bearer ${token}` } } });
+      const { data: links } = await sbU.from("coach_links").select("intervals_id").eq("athlete_id", user.id).not("intervals_id", "is", null).limit(1);
+      ath = links && links[0] ? String(links[0].intervals_id) : "";
+      if (!ath) return json({ error: "nolink" }, 403);
+    }
+    if (!/^i\d+$/.test(ath)) return json({ error: "nolink" }, 403);
 
     const body = await req.json().catch(() => ({}));
     const today = new Date().toISOString().slice(0, 10);

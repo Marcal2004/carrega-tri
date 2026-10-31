@@ -201,7 +201,8 @@ const st = {
   mode:"loading", uid:null, profile:null, profileLoaded:false,
   sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, planDay:null,
   view:"avui", weekRef:monday(todayStr()), plaTab:"home", chartRange:12, stale:false,
-  garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false}
+  garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false},
+  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:""
 };
 let refs = null;
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -271,7 +272,9 @@ function weekReal(ws){
 }
 
 /* ---------------- persistence ---------------- */
+const COACH_EDIT=["plan","dayplan","macros"];
 async function write(kind, id, data){
+  if (st.viewUid && !COACH_EDIT.includes(kind)){ toast("D'un atleta només pots editar la planificació."); return; }
   if (kind==="profile"){ st.profile={...(st.profile||{}),...data}; st.profileLoaded=true; }
   else if (data===null) delete st[kind][id]; else st[kind][id]=data;
   render();
@@ -289,11 +292,12 @@ const newId = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7
 const SB_URL="https://usktsnbiliacshtecvsg.supabase.co", SB_KEY="sb_publishable_FwgWhuZJr0j-wxWsszczLQ_JM-ozY4R";
 const COLLS=["sessions","daily","weights","macros","plan","tests","dayplan"];
 let sb=null;
-async function sbUpsert(coll,id,data){ const {error}=await sb.from("docs").upsert({user_id:st.uid,coll,id,data,updated_at:new Date().toISOString()}); if(error) throw error; }
-async function sbDelete(coll,id){ const {error}=await sb.from("docs").delete().eq("user_id",st.uid).eq("coll",coll).eq("id",id); if(error) throw error; }
+const curUid=()=>st.viewUid||st.uid;
+async function sbUpsert(coll,id,data){ const {error}=await sb.from("docs").upsert({user_id:curUid(),coll,id,data,updated_at:new Date().toISOString()}); if(error) throw error; }
+async function sbDelete(coll,id){ const {error}=await sb.from("docs").delete().eq("user_id",curUid()).eq("coll",coll).eq("id",id); if(error) throw error; }
 async function loadAll(){
   const fresh={}; COLLS.forEach(c=>fresh[c]={}); let prof=null, from=0;
-  while(true){ const {data,error}=await sb.from("docs").select("coll,id,data").range(from,from+999); if(error) throw error;
+  while(true){ const {data,error}=await sb.from("docs").select("coll,id,data").eq("user_id",curUid()).range(from,from+999); if(error) throw error;
     for(const r of data){ if(r.coll==="profile") prof=r.data; else if(fresh[r.coll]) fresh[r.coll][r.id]=r.data; }
     if(data.length<1000) break; from+=1000; }
   COLLS.forEach(c=>st[c]=fresh[c]); st.profile=prof; st.profileLoaded=true; st.stale=false;
@@ -310,7 +314,62 @@ async function startSession(session){
   st.uid=session.user.id; st.email=session.user.email; st.mode="loading"; render();
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
-  render(); syncGarmin(false);
+  render(); loadCoach().then(render); syncGarmin(false);
+}
+async function loadCoach(){
+  try{
+    const c=await sb.from("coaches").select("user_id").eq("user_id",st.uid).maybeSingle();
+    st.isCoach=!c.error && !!c.data;
+    const {data:links,error}=await sb.from("coach_links").select("coach_id,athlete_id,athlete_email,intervals_id");
+    if(error) return;
+    st.myLink=(links||[]).find(l=>l.athlete_id===st.uid)||null;
+    const mine=(links||[]).filter(l=>l.coach_id===st.uid);
+    const names={};
+    if(mine.length){ const {data:pr}=await sb.from("docs").select("user_id,data").eq("coll","profile").in("user_id",mine.map(l=>l.athlete_id)); (pr||[]).forEach(r=>names[r.user_id]=r.data?.name); }
+    st.athletes=mine.map(l=>({...l,name:names[l.athlete_id]||""})).sort((a,b)=>(a.name||a.athlete_email||"").localeCompare(b.name||b.athlete_email||""));
+  }catch(e){}
+}
+async function viewAthlete(uid){
+  const a=st.athletes.find(x=>x.athlete_id===uid); st.viewUid=uid||null; st.viewName=a?(a.name||a.athlete_email||"Atleta"):"";
+  st.mode="loading"; render();
+  try{ await loadAll(); }catch(e){ toast("No s'han pogut carregar les dades."); }
+  st.mode="db"; st.view="avui"; st.plaTab="home"; render(); window.scrollTo(0,0);
+}
+function rndCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const b=new Uint32Array(6); crypto.getRandomValues(b); return [...b].map(x=>A[x%A.length]).join(""); }
+async function createInvite(){
+  const code=rndCode(); const {error}=await sb.from("invites").insert({code,coach_id:st.uid});
+  if(error){ toast("No s'ha pogut crear el codi."); return; }
+  openSheet(sheetHead("Convidar atleta")+`<div class="preview" style="justify-content:center"><span class="big" style="font-size:40px;letter-spacing:6px">${code}</span></div>
+  <p class="small mut" style="margin:10px 0">Passa-li aquest codi a l'atleta. Ha d'entrar a <b>marcal2004.github.io/carrega-tri</b>, crear-se un compte i anar a <b>Jo › Configuració › Entrenador</b>. Caduca d'aquí a 14 dies i només serveix una vegada.</p>
+  <button class="btn pri block" data-act="copyCode" data-code="${code}">Copiar missatge</button>`);
+}
+function sheetRedeem(){
+  openSheet(sheetHead("Connectar amb l'entrenador")+`<div class="field"><label for="r-code">Codi d'invitació</label><input class="in-t" id="r-code" maxlength="10" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;font-size:22px" placeholder="ABC123"></div><div class="err" id="r-err"></div><button class="btn pri block" data-act="redeem">Connectar</button>
+  <p class="small mut" style="margin-top:10px">El teu entrenador podrà veure les teves dades i preparar-te la planificació.</p>`);
+}
+async function redeem(){
+  const v=document.querySelector("#r-code").value.trim(); const err=document.querySelector("#r-err");
+  if(v.length<4){ err.textContent="Escriu el codi."; return; }
+  const {error}=await sb.rpc("redeem_invite",{p_code:v});
+  if(error){ err.textContent=/self/.test(error.message)?"Aquest codi l'has creat tu.":"Codi no vàlid o caducat."; return; }
+  closeSheet(); toast("Connectat amb l'entrenador"); await loadCoach(); render();
+}
+function sheetAthlete(uid){
+  const a=st.athletes.find(x=>x.athlete_id===uid); if(!a) return; sheetState={kind:"ath",uid};
+  openSheet(sheetHead(a.name||a.athlete_email||"Atleta",a.athlete_email||"")+`<div class="field"><label for="a-int">ID d'intervals.icu</label><input class="in-t" id="a-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"><div class="note">L'atleta t'ha d'afegir com a entrenador a intervals.icu. El seu ID surt a la seva pàgina de Configuració d'intervals.</div></div><div class="err" id="a-err"></div>
+  <button class="btn pri block" data-act="saveAth">Guardar</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="unlinkAth">Desvincular atleta</button>`);
+}
+async function saveAth(){
+  const v=document.querySelector("#a-int").value.trim().toLowerCase(), err=document.querySelector("#a-err");
+  if(v && !/^i\d+$/.test(v)){ err.textContent="Ha de ser tipus i123456."; return; }
+  const {error}=await sb.from("coach_links").update({intervals_id:v||null}).eq("coach_id",st.uid).eq("athlete_id",sheetState.uid);
+  if(error){ err.textContent="No s'ha pogut guardar."; return; }
+  closeSheet(); await loadCoach(); render(); toast("Guardat");
+}
+async function unlinkAth(){
+  const uid=sheetState.uid; const {error}=await sb.from("coach_links").delete().eq("coach_id",st.uid).eq("athlete_id",uid);
+  if(error){ toast("No s'ha pogut desvincular."); return; }
+  closeSheet(); await loadCoach(); render(); toast("Atleta desvinculat");
 }
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&st.mode==="db"&&sb){ loadAll().then(()=>{ schedule(); if(!st.garmin.last||Date.now()-st.garmin.last>10*60000) syncGarmin(false); }).catch(()=>{}); } });
 function vLogin(){
@@ -352,14 +411,14 @@ function mapType(t){ t=String(t||"").toUpperCase(); if(/SWIM/.test(t)) return "N
 function localDate(iso){ const d=new Date(iso); return isNaN(d) ? null : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 const numOr=(v)=>typeof v==="number"&&isFinite(v)?v:null;
 async function syncGarmin(manual){
-  if(syncing || !sb || st.mode!=="db") return;
+  if(syncing || !sb || st.mode!=="db" || st.viewUid) return;
   syncing=true; st.garmin={...st.garmin,state:"sync",msg:""}; schedule();
   const today=todayStr(), from=addD(today,-14);
   try{
     const {data,error}=await sb.functions.invoke("intervals-sync",{body:{oldest:from,newest:today}});
     if(error){
       let m="No s'ha pogut connectar amb intervals.icu.";
-      try{ const b=await error.context.json(); if(b.error==="forbidden") m="Aquest compte no pot sincronitzar (revisa OWNER_EMAIL)."; else if(b.error==="nokey") m="Falta la clau d'intervals.icu als Secrets de Supabase."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no accepta la clau. Revisa INTERVALS_API_KEY."; }catch(_){ if(error.name==="FunctionsFetchError"||error.name==="FunctionsRelayError") m="La funció intervals-sync no està instal·lada a Supabase."; }
+      try{ const b=await error.context.json(); if(b.error==="forbidden") m="Aquest compte no pot sincronitzar (revisa OWNER_EMAIL)."; else if(b.error==="nolink") m="Garmin encara no està connectat. Demana-ho al teu entrenador."; else if(b.error==="nokey") m="Falta la clau d'intervals.icu als Secrets de Supabase."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no accepta la clau. Revisa INTERVALS_API_KEY."; }catch(_){ if(error.name==="FunctionsFetchError"||error.name==="FunctionsRelayError") m="La funció intervals-sync no està instal·lada a Supabase."; }
       throw new Error(m);
     }
     const ignored=new Set(prof().garminIgnored||[]);
@@ -446,7 +505,7 @@ function vAvui(){
     <div class="kv"><span>VFC</span><b>${rec.r.hrv??"–"} ms${rec.dev!=null?` <span style="color:${rec.dev<-0.05?"var(--yellow)":"var(--mut)"}">(${rec.dev>0?"+":""}${Math.round(rec.dev*100)}%)</span>`:""}</b></div></div>
     <button class="btn ghost" style="margin-top:8px;padding:8px 12px;font-size:13px" data-act="morning" data-date="${d}">Editar</button>`;
   } else {
-    h+=`<div class="decision mut">Sense dades d'avui</div><p class="mut small" style="margin:6px 0 10px">Fes el control del matí: VFC i 4 preguntes.</p><button class="btn pri" data-act="morning" data-date="${d}">Control del matí</button>`;
+    h+=`<div class="decision mut">Sense dades d'avui</div><p class="mut small" style="margin:6px 0 10px">Fes el control del matí: son, bateria i 4 preguntes.</p><button class="btn pri" data-act="morning" data-date="${d}">Control del matí</button>`;
   }
   h+=`</div></div></div>`;
   const pc = pl&&pl.load ? wr.load/pl.load : null;
@@ -587,7 +646,14 @@ function vProfile(){
   h+=`<h2>Temporada</h2><div class="plist">${row("plaTab","macros","Macrocicles",m?`Ara: ${esc(m.name)}`:`${macros.length} creats`)}${row("plaTab","setmanes","Setmanes",`${nPlan} de 52 planificades · inici ${isDate(p.start)?fmtShort(p.start):"–"}`)}</div>`;
   const lt=tests[0];
   h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
-  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
+  if (st.viewUid){
+    h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense Garmin connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari i macrocicles). Les sessions i els controls del matí són seus.</p>`;
+    return h;
+  }
+  if (st.isCoach){
+    h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("viewAth","",esc(a.name||a.athlete_email||"Atleta"),(a.name?esc(a.athlete_email||"")+" · ":"")+(a.intervals_id?"Garmin ✓":"sense Garmin"),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
+  }
+  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
   return h;
 }
 
@@ -619,6 +685,7 @@ function render(){
   if (st.mode==="error"){ app.innerHTML=`<div class="empty" style="margin-top:40px">No s'ha pogut carregar l'app. Revisa la connexió i torna-ho a provar.</div>`; return; }
   else if (st.stale) banner=`<div class="banner">Encara no s'han pogut carregar totes les dades. El que veus pot no estar al dia.</div>`;
   if (st.mode==="loading"){ renderTabs(); return; }
+  if (st.viewUid) banner+=`<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Atleta: <b>${esc(st.viewName)}</b></span><button class="btn" style="padding:6px 12px" data-act="viewSelf">Tornar a mi</button></div>`;
   const v = st.view;
   app.innerHTML = banner + (v==="avui"?vAvui():v==="setmana"?vSetmana():v==="grafics"?vGrafics():vPla());
   renderTabs();
@@ -1056,6 +1123,15 @@ document.addEventListener("click", e=>{
     case "login": doLogin(); break;
     case "loginMode": st.loginMode=el.dataset.m; render(); break;
     case "logout": sb&&sb.auth.signOut(); break;
+    case "viewAth": viewAthlete(el.dataset.id); break;
+    case "viewSelf": viewAthlete(null); break;
+    case "invite": createInvite(); break;
+    case "copyCode": { const msg=`Hola! Per connectar-te a Càrrega Tri: entra a https://marcal2004.github.io/carrega-tri/ , crea't un compte i ves a Jo › Configuració › Entrenador. Codi: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
+    case "coachLink": if(!st.myLink) sheetRedeem(); else toast("Ja estàs connectat amb el teu entrenador"); break;
+    case "redeem": redeem(); break;
+    case "athSettings": sheetAthlete(st.viewUid); break;
+    case "saveAth": saveAth(); break;
+    case "unlinkAth": unlinkAth().then(()=>viewAthlete(null)); break;
     case "importJson": { const inp=document.createElement("input"); inp.type="file"; inp.accept="application/json,.json"; inp.onchange=()=>inp.files[0]&&importJson(inp.files[0]); inp.click(); break; }
     case "pendAll": st.pendAll=!st.pendAll; render(); break;
     case "pickDay": st.planDay=el.dataset.date; render(); break;
