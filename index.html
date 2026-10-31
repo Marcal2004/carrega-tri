@@ -310,7 +310,7 @@ async function startSession(session){
   st.uid=session.user.id; st.email=session.user.email; st.mode="loading"; render();
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
-  render();
+  render(); syncGarmin(false);
 }
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&st.mode==="db"&&sb){ loadAll().then(schedule).catch(()=>{}); } });
 function vLogin(){
@@ -347,77 +347,61 @@ let raf=0; function schedule(){ if(raf) return; raf=requestAnimationFrame(()=>{ 
 
 
 /* ---------------- Garmin sync ---------------- */
-let mcp=null, syncing=false;
-const G="Garmin";
+let syncing=false; const mcp=true;
 function mapType(t){ t=String(t||"").toUpperCase(); if(/SWIM/.test(t)) return "Natació"; if(/RUN|TREADMILL|TRAIL/.test(t)) return "Carrera"; if(/BIK|CYCL|RIDE|SPIN|GRAVEL/.test(t)) return "Ciclisme"; if(/STRENGTH|WEIGHT|GYM|HIIT/.test(t)) return "Força"; return null; }
 function localDate(iso){ const d=new Date(iso); return isNaN(d) ? null : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-function gErr(e){
-  const c=e&&e.code;
-  if(c==="server_not_connected") return "Garmin no està connectat. Afegeix-lo a claude.ai → Configuració → Connectors.";
-  if(c==="needs_reauth") return "Cal tornar a connectar Garmin a claude.ai → Configuració → Connectors.";
-  if(c==="not_in_manifest"||c==="approval_required"||c==="consent_required") return "Cal permetre que l'app llegeixi Garmin. Toca «Sincronitzar» i accepta.";
-  if(c==="selection_required") return "Tens més d'un connector Garmin: tria'n un quan t'ho demani claude.ai.";
-  if(c==="blocked_by_policy") return "La teva organització no permet usar Garmin aquí.";
-  if(c==="server_unavailable") return "Garmin no respon ara mateix. Torna-ho a provar d'aquí a una estona.";
-  return "No s'ha pogut sincronitzar amb Garmin.";
-}
-async function gCall(tool,input){
-  try{ return (await mcp.callTool(G,tool,input,{cache:false})).payload; }
-  catch(e){ if(e&&e.retryable){ await new Promise(r=>setTimeout(r,(e.retryAfterMs||1500)+Math.random()*800)); return (await mcp.callTool(G,tool,input,{cache:false})).payload; } throw e; }
-}
-const arr = p => Array.isArray(p) ? p : (p && typeof p==="object" ? (Object.values(p).find(Array.isArray)||[]) : []);
-function pickDate(o){ for(const [k,v] of Object.entries(o||{})) if(/date|day|calendar/i.test(k) && typeof v==="string"){ const d=v.slice(0,10); if(isDate(d)) return d; } for(const [k,v] of Object.entries(o||{})) if(/start|time/i.test(k) && typeof v==="string"){ const d=localDate(v); if(d) return d; } return null; }
-function pickNum(o,re,exclude){ for(const [k,v] of Object.entries(o||{})) if(re.test(k) && !(exclude&&exclude.test(k)) && typeof v==="number") return v; return null; }
+const numOr=(v)=>typeof v==="number"&&isFinite(v)?v:null;
 async function syncGarmin(manual){
-  if(!mcp || syncing) return; if(!refs && st.mode!=="memory") return;
+  if(syncing || !sb || st.mode!=="db") return;
   syncing=true; st.garmin={...st.garmin,state:"sync",msg:""}; schedule();
   const today=todayStr(), from=addD(today,-14);
   try{
-    // activities
-    const list=arr(await gCall("list_activities",{from_date:from,to_date:today,limit:60}));
-    const byKey={};
-    for(const a of list){ if(!a||!a.start_time) continue; const k=a.start_time+"|"+a.activity_type; const base=String(a.summary_id||"").replace(/-detail$/,""); if(!byKey[k] || (!/-detail$/.test(a.summary_id||"") )) byKey[k]={...a,base}; }
+    const {data,error}=await sb.functions.invoke("intervals-sync",{body:{oldest:from,newest:today}});
+    if(error){
+      let m="No s'ha pogut connectar amb intervals.icu.";
+      try{ const b=await error.context.json(); if(b.error==="forbidden") m="Aquest compte no pot sincronitzar (revisa OWNER_EMAIL)."; else if(b.error==="nokey") m="Falta la clau d'intervals.icu als Secrets de Supabase."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no accepta la clau. Revisa INTERVALS_API_KEY."; }catch(_){ if(error.name==="FunctionsFetchError"||error.name==="FunctionsRelayError") m="La funció intervals-sync no està instal·lada a Supabase."; }
+      throw new Error(m);
+    }
     const ignored=new Set(prof().garminIgnored||[]);
-    let acts=Object.values(byKey).sort((a,b)=>a.start_time<b.start_time?-1:1);
-    const same=(a,b)=>{ if(a===b||mapType(a.activity_type)!==mapType(b.activity_type)||localDate(a.start_time)!==localDate(b.start_time)) return false;
-      const da=a.distance_meters||0, db=b.distance_meters||0, ta=a.duration_seconds||0, tb=b.duration_seconds||0;
-      return da>0&&db>0&&Math.abs(da-db)/Math.max(da,db)<0.03&&Math.abs(ta-tb)/Math.max(ta,tb)<0.05; };
-    const score=a=>(a.average_heart_rate_in_beats_per_minute?2:0)+(/challenge|race|cursa/i.test(a.activity_name||"")?1:0);
-    acts=acts.filter(a=>!acts.some(b=>same(a,b)&&(score(b)>score(a)||(score(b)===score(a)&&b.base<a.base))));
+    const acts=(data.activities||[]).map(a=>({...a,disc:mapType(a.type),gid:String(a.external_id||a.id||""),t0:new Date(a.start_date||a.start_date_local).getTime(),sec:a.moving_time||a.elapsed_time||0})).filter(a=>a.gid&&a.start_date_local).sort((a,b)=>a.t0-b.t0);
     let added=0, skipped=0;
     for(const a of acts){
-      const disc=mapType(a.activity_type), id="g-"+a.base;
-      if(!disc){ skipped++; continue; }
-      if(st.sessions[id] || ignored.has(a.base)) continue;
-      const date=localDate(a.start_time); if(!date) continue;
-      const min=Math.max(1,Math.round((a.duration_seconds||0)/60));
-      const s={date,disc,min,rpe:null,pending:true,source:"garmin",gid:a.base,start:a.start_time,desc:a.activity_name||disc,brick:false};
-      if(disc==="Natació" && a.distance_meters) s.m=Math.round(a.distance_meters);
-      if((disc==="Ciclisme"||disc==="Carrera") && a.distance_meters) s.km=Math.round(a.distance_meters/100)/10;
-      if(a.average_heart_rate_in_beats_per_minute && disc!=="Natació") s.fc=a.average_heart_rate_in_beats_per_minute;
-      if(disc==="Carrera"){ const st0=new Date(a.start_time).getTime(); s.brick = acts.some(b=>mapType(b.activity_type)==="Ciclisme" && b!==a && Math.abs(st0-(new Date(b.start_time).getTime()+(b.duration_seconds||0)*1000))<20*60000); }
+      if(!a.disc){ skipped++; continue; }
+      const id="g-"+a.gid.replace(/[^A-Za-z0-9_-]/g,"");
+      if(st.sessions[id] || ignored.has(a.gid)) continue;
+      const date=String(a.start_date_local).slice(0,10); if(!isDate(date)) continue;
+      const min=Math.max(1,Math.round(a.sec/60));
+      // ja existeix una sessió igual (p. ex. importada abans des de Claude)?
+      const dup=sessList().some(s=>s.date===date && s.disc===a.disc && s.min && Math.abs(s.min-min)/Math.max(s.min,min)<0.08 && (!(s.km&&a.distance)||Math.abs(s.km*1000-a.distance)/a.distance<0.05) && (!(s.m&&a.distance)||Math.abs(s.m-a.distance)/a.distance<0.05));
+      if(dup) continue;
+      const s={date,disc:a.disc,min,rpe:null,pending:true,source:"garmin",gid:a.gid,start:a.start_date||a.start_date_local,desc:a.name||a.disc,brick:false};
+      if(a.disc==="Natació" && a.distance) s.m=Math.round(a.distance);
+      if((a.disc==="Ciclisme"||a.disc==="Carrera") && a.distance) s.km=Math.round(a.distance/100)/10;
+      if(a.average_heartrate && a.disc!=="Natació") s.fc=Math.round(a.average_heartrate);
+      if(a.disc==="Ciclisme" && a.icu_average_watts) s.w=Math.round(a.icu_average_watts);
+      if(a.disc==="Carrera") s.brick=acts.some(b=>b.disc==="Ciclisme" && Math.abs(a.t0-(b.t0+(b.elapsed_time||b.sec)*1000))<20*60000);
       await write("sessions",id,s); added++;
     }
-    // wellness (sleep, body battery, HRV) — merged into the daily doc under "garmin"
-    const w={};
-    const take=(rows,fn)=>{ for(const r of arr(rows)){ const d=pickDate(r); if(!d) continue; const v=fn(r); if(v) w[d]={...(w[d]||{}),...v}; } };
-    const q={from_date:addD(today,-7),to_date:today,limit:10};
-    const res=await Promise.allSettled([gCall("get_sleep_summary",q),gCall("get_body_battery",q),gCall("get_hrv_status",q)]);
-    if(res[0].status==="fulfilled") take(res[0].value,r=>{ const sc=pickNum(r,/score/i), sec=pickNum(r,/duration|seconds|total/i,/awake|deep|light|rem/i); return (sc!=null||sec!=null)?{sleepScore:sc,sleepH:sec!=null?Math.round(sec/360)/10:null}:null; });
-    if(res[1].status==="fulfilled") take(res[1].value,r=>{ const hi=pickNum(r,/highest|high|max/i), lo=pickNum(r,/lowest|low|min/i); return (hi!=null||lo!=null)?{bbHigh:hi,bbLow:lo}:null; });
-    if(res[2].status==="fulfilled") take(res[2].value,r=>{ const h=pickNum(r,/last.?night|nightly|avg|average/i,/week|5.?min|high/i); return h!=null?{hrvG:Math.round(h)}:null; });
-    for(const [d,g] of Object.entries(w)){
-      const ex=st.daily[d]||{}; const cur=ex.garmin||{};
-      if(JSON.stringify({...cur,...g})===JSON.stringify(cur)) continue;
-      const nd={...ex,garmin:{...cur,...g}}; if(nd.hrv==null && g.hrvG!=null) nd.hrv=g.hrvG;
-      await write("daily",d,nd);
+    let wn=0;
+    for(const r of (data.wellness||[])){
+      const d=String(r.id||"").slice(0,10); if(!isDate(d)) continue;
+      const g={};
+      if(numOr(r.hrv)!=null) g.hrvG=Math.round(r.hrv);
+      if(numOr(r.sleepScore)!=null) g.sleepScore=Math.round(r.sleepScore);
+      if(numOr(r.sleepSecs)!=null) g.sleepH=Math.round(r.sleepSecs/360)/10;
+      if(numOr(r.restingHR)!=null) g.rhr=r.restingHR;
+      for(const [k,v] of Object.entries(r)) if(/battery/i.test(k) && numOr(v)!=null){ g.bbHigh=Math.round(v); break; }
+      if(Object.keys(g).length){
+        const ex=st.daily[d]||{}, cur=ex.garmin||{};
+        if(JSON.stringify({...cur,...g})!==JSON.stringify(cur)){ await write("daily",d,{...ex,garmin:{...cur,...g}}); wn++; }
+      }
+      if(numOr(r.weight)!=null && !st.weights[d]) await write("weights",d,{kg:Math.round(r.weight*10)/10,note:"Garmin"});
     }
-    const errs=res.filter(r=>r.status==="rejected").map(r=>r.reason);
-    const allEmpty=res.every(r=>r.status==="fulfilled" && arr(r.value).length===0);
-    st.garmin={state:"ok",msg:errs.length?gErr(errs[0]):allEmpty?"Garmin no comparteix son ni Body Battery.":"",last:new Date(),added,skipped,wellness:Object.keys(w).length>0,noHealth:allEmpty};
-    if(manual||added) toast(added?`${added} activitat${added>1?"s":""} nova${added>1?"s":""} de Garmin`:"Tot al dia amb Garmin");
+    st.garmin={state:"ok",msg:"",last:new Date(),added,skipped,wellness:wn>0};
+    if(manual||added) toast(added?`${added} activitat${added>1?"s noves":" nova"} de Garmin`:"Tot al dia amb Garmin");
   }catch(e){
-    st.garmin={...st.garmin,state:"error",msg:gErr(e)};
+    st.garmin={...st.garmin,state:"error",msg:e.message||"Error de sincronització"};
+    if(manual) toast(st.garmin.msg);
   }finally{ syncing=false; schedule(); }
 }
 
@@ -601,7 +585,7 @@ function vProfile(){
   h+=`<h2>Temporada</h2><div class="plist">${row("plaTab","macros","Macrocicles",m?`Ara: ${esc(m.name)}`:`${macros.length} creats`)}${row("plaTab","setmanes","Setmanes",`${nPlan} de 52 planificades · inici ${isDate(p.start)?fmtShort(p.start):"–"}`)}</div>`;
   const lt=tests[0];
   h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
-  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
+  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes()):"Activitats, VFC i son via intervals.icu")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
   return h;
 }
 
