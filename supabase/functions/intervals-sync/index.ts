@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
     const owner = (Deno.env.get("OWNER_EMAIL") || "").trim().toLowerCase();
     if (!owner || (user.email || "").toLowerCase() !== owner) return json({ error: "forbidden" }, 403);
 
-    const key = Deno.env.get("INTERVALS_API_KEY");
+    const key = Deno.env.get("INTERVALS_API_KEY") || Deno.env.get("Intervals_api_key");
     const ath = Deno.env.get("INTERVALS_ATHLETE_ID") || "i607700";
     if (!key) return json({ error: "nokey" }, 500);
 
