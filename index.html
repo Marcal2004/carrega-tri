@@ -693,16 +693,15 @@ function sheetMorning(date){
   h+=`<div class="field"><label for="m-date">Data</label><input class="in-t" id="m-date" type="date" value="${date}"></div>
   <div class="f2"><div class="field"><label for="m-sleep">1 · Puntuació de son</label><input class="in-t" id="m-sleep" type="number" inputmode="numeric" min="0" max="100" step="1" value="${ex.sleepScore??gm.sleepScore??""}" placeholder="0-100"></div>
   <div class="field"><label for="m-bb">2 · Body Battery</label><input class="in-t" id="m-bb" type="number" inputmode="numeric" min="0" max="100" step="1" value="${ex.bb??gm.bbHigh??""}" placeholder="0-100"></div></div>
-  <div class="note">Valors en llevar-te, de Garmin o Bevel.</div>
-  <div class="field"><label for="m-hrv">3 · VFC (rMSSD, ms)</label><input class="in-t" id="m-hrv" type="number" inputmode="decimal" min="1" max="300" step="1" value="${ex.hrv??""}" placeholder="72"><div class="note">${ex.garmin?.hrvG!=null?`Garmin: ${ex.garmin.hrvG} ms (s'omple sol si sincronitza).`:"En llevar-te, estirat, sempre amb el mateix dispositiu."}</div></div>
-  <div class="field"><label for="m-kg">4 · Pes (kg)</label><input class="in-t" id="m-kg" type="number" inputmode="decimal" step="0.1" min="30" max="250" value="${st.weights[date]?.kg??""}" placeholder="En dejú, després d'anar al lavabo"></div>`;
+  <div class="note">Valors en llevar-te, de Garmin o Bevel. La VFC s'importa sola de Garmin${(ex.hrv??gm.hrvG)!=null?` (avui ${ex.hrv??gm.hrvG} ms)`:""}.</div>
+  <div class="field"><label for="m-kg">3 · Pes (kg)</label><input class="in-t" id="m-kg" type="number" inputmode="decimal" step="0.1" min="30" max="250" value="${st.weights[date]?.kg??""}" placeholder="En dejú, després d'anar al lavabo"></div>`;
   for (const [k,l,lo,hi] of Q_ITEMS) h+=`<div class="field"><span class="flab">${l}</span>${pickRow(k,5,sheetState[k])}<div class="row between note" style="margin-top:2px"><span>1 · ${lo}</span><span>5 · ${hi}</span></div></div>`;
   h+=`<div class="preview"><span class="mut">Recuperació</span><span class="big" id="m-prev">–</span></div><div class="err" id="m-err"></div>
   <button class="btn pri block" data-act="saveMorning">Guardar</button>${st.daily[date]?delButton():""}`;
   openSheet(h, root=>{ const upd=()=>{ const t=Q_ITEMS.map(([k])=>sheetState[k]); root.querySelector("#m-prev").textContent = t.every(v=>v!=null) ? t.reduce((a,b)=>a+b,0)+"/20" : "–"; root.querySelector("#m-err").textContent=""; }; wirePicks(root,upd); upd(); root.querySelector("#m-date").addEventListener("change",e=>{ if(isDate(e.target.value)){ closeSheet(); sheetMorning(e.target.value); } }); });
 }
 function saveMorning(){
-  const root=document.querySelector(".sheet"), hrv=num(root.querySelector("#m-hrv").value), err=root.querySelector("#m-err");
+  const root=document.querySelector(".sheet"), hrv=null, err=root.querySelector("#m-err");
   const sleepScore=num(root.querySelector("#m-sleep").value), bb=num(root.querySelector("#m-bb").value), kg=num(root.querySelector("#m-kg").value);
   if (kg!=null&&(kg<30||kg>250)){ err.textContent="Posa un pes entre 30 i 250 kg."; return; }
   const miss=Q_ITEMS.filter(([k])=>sheetState[k]==null).map(([,l])=>l);
@@ -712,7 +711,7 @@ function saveMorning(){
   if (miss.length && miss.length<4){ err.textContent="Respon les 4 preguntes: falta "+miss.join(", ")+"."; return; }
   if (hrv!=null && (hrv<1||hrv>300)){ err.textContent="La VFC ha d'estar entre 1 i 300 ms."; return; }
   const d=sheetState.date, prevD=st.daily[d]||{};
-  const data={...prevD, hrv: hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, bb}; data.hrvSrc = (hrv!=null && hrv!==prevD.garmin?.hrvG) ? "manual" : (data.hrv!=null ? "garmin" : null); for(const [k] of Q_ITEMS) data[k]=sheetState[k];
+  const data={...prevD, hrv: prevD.hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, bb}; if(data.hrv!=null && !data.hrvSrc) data.hrvSrc="garmin"; for(const [k] of Q_ITEMS) data[k]=sheetState[k];
   if (kg!=null && kg!==st.weights[d]?.kg) write("weights",d,{kg,note:st.weights[d]?.note||""}); closeSheet(); write("daily",d,data); toast("Control del matí guardat");
 }
 
