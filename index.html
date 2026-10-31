@@ -312,7 +312,7 @@ async function startSession(session){
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
   render(); syncGarmin(false);
 }
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&st.mode==="db"&&sb){ loadAll().then(schedule).catch(()=>{}); } });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&st.mode==="db"&&sb){ loadAll().then(()=>{ schedule(); if(!st.garmin.last||Date.now()-st.garmin.last>10*60000) syncGarmin(false); }).catch(()=>{}); } });
 function vLogin(){
   const m=st.loginMode||"in";
   const t={in:["Entra","Entrar"],up:["Crea el compte","Crear compte"],reset:["Recupera la contrasenya","Enviar enllaç"],newpass:["Nova contrasenya","Guardar"]}[m];
@@ -382,22 +382,24 @@ async function syncGarmin(manual){
       if(a.disc==="Carrera") s.brick=acts.some(b=>b.disc==="Ciclisme" && Math.abs(a.t0-(b.t0+(b.elapsed_time||b.sec)*1000))<20*60000);
       await write("sessions",id,s); added++;
     }
-    let wn=0;
+    let wn=0, lastHrv=null;
     for(const r of (data.wellness||[])){
       const d=String(r.id||"").slice(0,10); if(!isDate(d)) continue;
       const g={};
-      if(numOr(r.hrv)!=null) g.hrvG=Math.round(r.hrv);
+      let hv=numOr(r.hrv); if(hv==null) for(const [k,v] of Object.entries(r)) if(/hrv|rmssd/i.test(k) && !/sdnn/i.test(k) && numOr(v)!=null){ hv=v; break; }
+      if(hv!=null){ g.hrvG=Math.round(hv); if(!lastHrv||d>lastHrv) lastHrv=d; }
       if(numOr(r.sleepScore)!=null) g.sleepScore=Math.round(r.sleepScore);
       if(numOr(r.sleepSecs)!=null) g.sleepH=Math.round(r.sleepSecs/360)/10;
       if(numOr(r.restingHR)!=null) g.rhr=r.restingHR;
       for(const [k,v] of Object.entries(r)) if(/battery/i.test(k) && numOr(v)!=null){ g.bbHigh=Math.round(v); break; }
       if(Object.keys(g).length){
         const ex=st.daily[d]||{}, cur=ex.garmin||{};
-        if(JSON.stringify({...cur,...g})!==JSON.stringify(cur)){ await write("daily",d,{...ex,garmin:{...cur,...g}}); wn++; }
+        const nd={...ex,garmin:{...cur,...g}}; if(g.hrvG!=null && (ex.hrv==null || ex.hrvSrc==="garmin")){ nd.hrv=g.hrvG; nd.hrvSrc="garmin"; }
+        if(JSON.stringify(nd)!==JSON.stringify(ex)){ await write("daily",d,nd); wn++; }
       }
       if(numOr(r.weight)!=null && !st.weights[d]) await write("weights",d,{kg:Math.round(r.weight*10)/10,note:"Garmin"});
     }
-    st.garmin={state:"ok",msg:"",last:new Date(),added,skipped,wellness:wn>0};
+    st.garmin={state:"ok",msg:"",last:new Date(),added,skipped,wellness:wn>0,nAct:acts.length,nWell:(data.wellness||[]).length,lastHrv};
     if(manual||added) toast(added?`${added} activitat${added>1?"s noves":" nova"} de Garmin`:"Tot al dia amb Garmin");
   }catch(e){
     st.garmin={...st.garmin,state:"error",msg:e.message||"Error de sincronització"};
@@ -585,7 +587,7 @@ function vProfile(){
   h+=`<h2>Temporada</h2><div class="plist">${row("plaTab","macros","Macrocicles",m?`Ara: ${esc(m.name)}`:`${macros.length} creats`)}${row("plaTab","setmanes","Setmanes",`${nPlan} de 52 planificades · inici ${isDate(p.start)?fmtShort(p.start):"–"}`)}</div>`;
   const lt=tests[0];
   h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
-  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes()):"Activitats, VFC i son via intervals.icu")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
+  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
   return h;
 }
 
@@ -710,7 +712,7 @@ function saveMorning(){
   if (miss.length && miss.length<4){ err.textContent="Respon les 4 preguntes: falta "+miss.join(", ")+"."; return; }
   if (hrv!=null && (hrv<1||hrv>300)){ err.textContent="La VFC ha d'estar entre 1 i 300 ms."; return; }
   const d=sheetState.date, prevD=st.daily[d]||{};
-  const data={...prevD, hrv: hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, bb}; for(const [k] of Q_ITEMS) data[k]=sheetState[k];
+  const data={...prevD, hrv: hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, bb}; data.hrvSrc = (hrv!=null && hrv!==prevD.garmin?.hrvG) ? "manual" : (data.hrv!=null ? "garmin" : null); for(const [k] of Q_ITEMS) data[k]=sheetState[k];
   if (kg!=null && kg!==st.weights[d]?.kg) write("weights",d,{kg,note:st.weights[d]?.note||""}); closeSheet(); write("daily",d,data); toast("Control del matí guardat");
 }
 
