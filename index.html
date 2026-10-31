@@ -210,20 +210,23 @@ const num = v => { if (v===""||v==null) return null; const n = Number(String(v).
 const r0 = n => Math.round(n); const r1 = n => Math.round(n*10)/10;
 const fmtN = n => n==null||!isFinite(n) ? "–" : Math.round(n).toLocaleString("ca-ES");
 const prof = () => st.profile || {};
-const avatar = () => (typeof prof().photo==="string" && prof().photo.startsWith("data:image/")) ? prof().photo : IMG_RUN;
-function sheetPhoto(){
+const okImg = v => typeof v==="string" && v.startsWith("data:image/");
+const avatar = () => okImg(prof().photo) ? prof().photo : IMG_RUN;
+const cover = () => okImg(prof().cover) ? prof().cover : IMG_BIKE;
+function sheetPhoto(kind="photo"){
   if (st.viewUid){ toast("La foto la canvia l'atleta des del seu compte."); return; }
-  openSheet(sheetHead("Foto de perfil")+`<div style="display:flex;justify-content:center;margin:6px 0 14px"><img src="${avatar()}" alt="" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)"></div>
-  <button class="btn pri block" data-act="pickPhoto">Triar una foto</button>${prof().photo?`<button class="btn block" style="margin-top:8px" data-act="delPhoto">Treure la foto</button>`:""}`);
+  const isC=kind==="cover";
+  openSheet(sheetHead(isC?"Foto d'Avui":"Foto de perfil")+`<div style="display:flex;justify-content:center;margin:6px 0 14px">${isC?`<img src="${cover()}" alt="" style="width:100%;height:150px;border-radius:14px;object-fit:cover">`:`<img src="${avatar()}" alt="" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)">`}</div>
+  <button class="btn pri block" data-act="pickPhoto" data-k="${kind}">Triar una foto</button>${prof()[kind]?`<button class="btn block" style="margin-top:8px" data-act="delPhoto" data-k="${kind}">Treure la foto</button>`:""}`);
 }
-function pickPhoto(){
+function pickPhoto(kind="photo"){
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*";
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
     const url=URL.createObjectURL(f), img=new Image();
-    img.onload=()=>{ const S=320, c=document.createElement("canvas"); c.width=S; c.height=S; const x=c.getContext("2d");
-      const side=Math.min(img.naturalWidth,img.naturalHeight), sx=(img.naturalWidth-side)/2, sy=(img.naturalHeight-side)/2;
-      x.drawImage(img,sx,sy,side,side,0,0,S,S); URL.revokeObjectURL(url);
-      const data=c.toDataURL("image/jpeg",0.82); closeSheet(); write("profile",null,{photo:data}); toast("Foto actualitzada"); };
+    img.onload=()=>{ const W=kind==="cover"?960:320, H=kind==="cover"?540:320, c=document.createElement("canvas"); c.width=W; c.height=H; const x=c.getContext("2d");
+      const iw=img.naturalWidth, ih=img.naturalHeight, r=Math.max(W/iw,H/ih), sw=W/r, sh=H/r;
+      x.drawImage(img,(iw-sw)/2,(ih-sh)/2,sw,sh,0,0,W,H); URL.revokeObjectURL(url);
+      const data=c.toDataURL("image/jpeg",kind==="cover"?0.78:0.82); closeSheet(); write("profile",null,{[kind]:data}); toast("Foto actualitzada"); };
     img.onerror=()=>{ URL.revokeObjectURL(url); toast("No s'ha pogut llegir la imatge."); };
     img.src=url; };
   inp.click();
@@ -343,7 +346,7 @@ async function loadCoach(){
     st.myLink=(links||[]).find(l=>l.athlete_id===st.uid)||null;
     const mine=(links||[]).filter(l=>l.coach_id===st.uid);
     const names={};
-    if(mine.length){ const {data:pr}=await sb.from("docs").select("user_id,data").eq("coll","profile").in("user_id",mine.map(l=>l.athlete_id)); (pr||[]).forEach(r=>names[r.user_id]=r.data?.name); }
+    if(mine.length){ const {data:pr}=await sb.from("docs").select("user_id,name:data->>name").eq("coll","profile").in("user_id",mine.map(l=>l.athlete_id)); (pr||[]).forEach(r=>names[r.user_id]=r.name); }
     st.athletes=mine.map(l=>({...l,name:names[l.athlete_id]||""})).sort((a,b)=>(a.name||a.athlete_email||"").localeCompare(b.name||b.athlete_email||""));
   }catch(e){}
 }
@@ -512,7 +515,7 @@ function vAvui(){
   const todays=sessList().filter(s=>s.date===d);
   const lastW = Object.entries(st.weights).sort((a,b)=>a[0]<b[0]?1:-1)[0];
   const needSetup = st.profileLoaded && !st.profile;
-  let h=`<div class="photo main"><img src="${IMG_BIKE}" alt="Ciclista amb el mallot groc de la Creu Groga sobre la bici"><span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${prof().name?`Hola, ${esc(prof().name)}`:"Avui"}</h1></div></div>`;
+  let h=`<div class="photo main"><img src="${cover()}" alt="${prof().cover?"Foto de portada":"Ciclista amb el mallot groc de la Creu Groga sobre la bici"}" ${prof().cover?'style="object-position:50% 50%"':""}>${st.viewUid?"":`<button data-act="cover" aria-label="Canviar la foto d'Avui" style="position:absolute;top:12px;left:12px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>`}<span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${prof().name?`Hola, ${esc(prof().name)}`:"Avui"}</h1></div></div>`;
   if (needSetup) h+=`<div class="card" style="margin-bottom:12px"><div class="decision">Configura la temporada</div><p class="mut small" style="margin:6px 0 12px">Posa el teu nom, el dilluns d'inici i el pes objectiu. Els coeficients per disciplina ja vénen carregats.</p><button class="btn pri block" data-act="settings">Configurar</button></div>`;
   h+=garminBlock(d,rec);
   h+=vDayPlan();
@@ -1142,9 +1145,10 @@ document.addEventListener("click", e=>{
     case "loginMode": st.loginMode=el.dataset.m; render(); break;
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
-    case "photo": sheetPhoto(); break;
-    case "pickPhoto": pickPhoto(); break;
-    case "delPhoto": { const pr={...(st.profile||{})}; delete pr.photo; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
+    case "photo": sheetPhoto("photo"); break;
+    case "cover": sheetPhoto("cover"); break;
+    case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
+    case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
     case "viewSelf": viewAthlete(null); break;
     case "invite": createInvite(); break;
     case "copyCode": { const msg=`Hola! Per connectar-te a Càrrega Tri: entra a https://marcal2004.github.io/carrega-tri/ , crea't un compte i ves a Jo › Configuració › Entrenador. Codi: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
