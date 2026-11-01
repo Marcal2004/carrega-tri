@@ -890,10 +890,51 @@ function vAnalisi(){
   <h2>Pes</h2><div class="card"><div class="chartbox"><canvas id="c5" aria-label="Evolució del pes"></canvas></div></div>`;
 }
 
+/* ---------------- zones ---------------- */
+const HR_Z=[["Z1","Recuperació",0,.68],["Z2","Aeròbic / resistència",.69,.83],["Z3","Tempo",.84,.94],["Z4","Llindar",.95,1.05],["Z5","VO2 màx",1.06,null]];
+const PW_Z=[["Z1","Recuperació activa",0,.55],["Z2","Resistència",.56,.75],["Z3","Tempo",.76,.90],["Z4","Llindar",.91,1.05],["Z5","VO2 màx",1.06,1.20],["Z6","Anaeròbic",1.21,1.50],["Z7","Neuromuscular",1.51,null]];
+const ZC=["#8B939C","#4DA3FF","#3DDC84","#FFD60A","#FF9F0A","#FF453A","#BF5AF2"];
+function zoneTable(rows,unit){
+  return `<div class="card" style="margin-top:10px">${rows.map((r,i)=>`<div style="display:grid;grid-template-columns:38px 1fr auto;gap:10px;align-items:center;padding:9px 0;${i?"border-top:1px solid var(--line)":""}"><b style="color:${ZC[i]};font-family:var(--disp);font-size:18px">${r[0]}</b><span><span style="display:block;font-weight:600">${r[1]}</span><span class="small mut">${r[4]}</span></span><span class="num" style="font-weight:700">${r[2]}${unit}</span></div>`).join("")}</div>`;
+}
+function vZonesFC(){
+  const p=prof(), L=num(p.lthr), mx=num(p.hrMax), rb=rhrBase(addD(todayStr(),1));
+  let h=`<div class="grid3" style="margin-top:12px"><div class="tile"><div class="lab">LTHR</div><div class="val" style="font-size:26px">${L??"–"}</div><div class="sub">ppm llindar</div></div><div class="tile"><div class="lab">FC màx</div><div class="val" style="font-size:26px">${mx??"–"}</div><div class="sub">ppm</div></div><div class="tile"><div class="lab">FC repòs</div><div class="val" style="font-size:26px">${rb!=null?Math.round(rb):"–"}</div><div class="sub">mitjana 7 d</div></div></div>`;
+  if(L){ const rows=HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):(mx||null); return [z,n, i===0?`< ${Math.round(L*hi)+1}`:hi?`${a}–${b}`:`> ${a-1}${mx?" (màx "+mx+")":""}`, "", i===0?`< ${Math.round(hi*100)}% LTHR`:hi?`${Math.round(lo*100)}–${Math.round(hi*100)}% LTHR`:`> ${Math.round(lo*100)}% LTHR`]; });
+    h+=`<h2>Zones</h2>`+zoneTable(rows," ppm")+`<p class="note" style="margin-top:8px">Zones de Coggan sobre la FC al llindar (LTHR). Són les mateixes referències que fem servir als entrenos del rellotge (% LTHR).</p>`; }
+  else h+=`<div class="empty" style="margin-top:12px">Posa la teva FC al llindar (LTHR) per calcular les zones.</div>`;
+  h+=`<button class="btn pri block" style="margin-top:12px" data-act="editZones">Editar llindars</button>`;
+  return h;
+}
+function vZonesFTP(){
+  const p=prof(), F=num(p.ftp), kg=lastKg();
+  let h=`<div class="grid3" style="margin-top:12px"><div class="tile"><div class="lab">FTP</div><div class="val" style="font-size:26px">${F??"–"}</div><div class="sub">W</div></div><div class="tile"><div class="lab">W/kg</div><div class="val" style="font-size:26px">${F&&kg?(F/kg).toFixed(2):"–"}</div><div class="sub">${kg?r1(kg)+" kg":"falta el pes"}</div></div><div class="tile"><div class="lab">Test</div><div class="val" style="font-size:18px;line-height:1.6">${p.ftpDate?esc(fmtShort(p.ftpDate)):"–"}</div><div class="sub">${p.ftpDate?"data":"sense data"}</div></div></div>`;
+  if(F){ const up=i=>Math.round(F*PW_Z[i][3]), rows=PW_Z.map(([z,n,lo,hi],i)=>[z,n, i===0?`< ${up(0)}`:hi?`${up(i-1)+1}–${up(i)}`:`> ${up(i-1)}`, "", i===0?`< ${Math.round(hi*100)}% FTP`:hi?`${Math.round(lo*100)}–${Math.round(hi*100)}% FTP`:`> ${Math.round(lo*100)}% FTP`]);
+    h+=`<h2>Zones de potència</h2>`+zoneTable(rows," W")+`<p class="note" style="margin-top:8px">Zones de Coggan sobre l'FTP. Recorda actualitzar l'FTP després de cada test (Tests › FTP).</p>`; }
+  else h+=`<div class="empty" style="margin-top:12px">Posa el teu FTP per calcular les zones.</div>`;
+  h+=`<button class="btn pri block" style="margin-top:12px" data-act="editZones">Editar llindars</button>`;
+  return h;
+}
+function sheetZones(){
+  const p=prof();
+  let h=sheetHead("Llindars","Per calcular les zones");
+  h+=`<div class="f2"><div class="field"><label for="z-lthr">FC al llindar (LTHR)</label><input class="in-t" id="z-lthr" type="number" inputmode="numeric" min="100" max="230" value="${p.lthr??""}" placeholder="187"></div><div class="field"><label for="z-max">FC màxima</label><input class="in-t" id="z-max" type="number" inputmode="numeric" min="120" max="240" value="${p.hrMax??""}" placeholder="200"></div></div>
+  <div class="f2"><div class="field"><label for="z-ftp">FTP (W)</label><input class="in-t" id="z-ftp" type="number" inputmode="numeric" min="50" max="600" value="${p.ftp??""}" placeholder="250"></div><div class="field"><label for="z-ftpd">Data del test FTP</label><input class="in-t" id="z-ftpd" type="date" value="${esc(p.ftpDate||"")}"></div></div>
+  <div class="err" id="z-err"></div><button class="btn pri block" data-act="saveZones">Guardar</button>`;
+  openSheet(h);
+}
+function saveZones(){
+  const q=i=>num(document.querySelector(i).value), L=q("#z-lthr"), M=q("#z-max"), F=q("#z-ftp"), D=document.querySelector("#z-ftpd").value, err=document.querySelector("#z-err");
+  if(L!=null&&(L<100||L>230)){ err.textContent="La LTHR ha d'estar entre 100 i 230."; return; }
+  if(M!=null&&(M<120||M>240)){ err.textContent="La FC màxima ha d'estar entre 120 i 240."; return; }
+  if(L!=null&&M!=null&&M<L){ err.textContent="La FC màxima ha de ser més alta que la LTHR."; return; }
+  if(F!=null&&(F<50||F>600)){ err.textContent="L'FTP ha d'estar entre 50 i 600 W."; return; }
+  closeSheet(); write("profile",null,{lthr:L,hrMax:M,ftp:F,ftpDate:isDate(D)?D:null}); toast("Llindars guardats");
+}
 function vPla(){
   const t=st.plaTab;
   if (!t || t==="home") return vProfile();
-  const TT={setmanes:["Temporada","Setmanes"],macros:["Temporada","Macrocicles"],tests:["Rendiment","Tests"],pes:["Rendiment","Pes"],coef:["Configuració","Coeficients"]}[t]||["Jo",""];
+  const TT={setmanes:["Temporada","Setmanes"],macros:["Temporada","Macrocicles"],tests:["Rendiment","Tests"],pes:["Rendiment","Pes"],zfc:["Rendiment","Zones de FC"],zftp:["Rendiment","FTP i zones"],coef:["Configuració","Coeficients"]}[t]||["Jo",""];
   let h=`<div class="top"><div><button class="btn ghost" style="padding:6px 10px;font-size:13px;margin-bottom:8px" data-act="plaTab" data-t="home">‹ Jo</button><div class="eyebrow">${TT[0]}</div><h1>${TT[1]}</h1></div></div>`;
   if (t==="setmanes"){
     const s0=monday(startDate()); const cur=monday(todayStr());
@@ -914,6 +955,10 @@ function vPla(){
     h+=vTests();
   } else if (t==="pes"){
     h+=vPes();
+  } else if (t==="zfc"){
+    h+=vZonesFC();
+  } else if (t==="zftp"){
+    h+=vZonesFTP();
   } else {
     const c=coefs(), tr=trans();
     h+=`<div class="card" style="margin-top:12px"><table class="tbl"><thead><tr><th>Disciplina</th><th>Coeficient</th><th>+ Brick</th></tr></thead><tbody>${DISC.map(d=>`<tr><td><span class="dot" style="background:${DHEX[d]};margin-right:8px"></span>${d}</td><td>${c[d].toFixed(2)}</td><td>${tr[d]?"+"+tr[d].toFixed(2):"–"}</td></tr>`).join("")}</tbody></table>
@@ -935,7 +980,7 @@ function vProfile(){
     <div class="tile"><div class="lab">VFC normal</div><div class="val" style="font-size:26px">${rg?`${rg.lo}–${rg.hi}`:"–"}</div><div class="sub">ms</div></div></div>`;
   h+=`<h2>Temporada</h2><div class="plist">${row("plaTab","macros","Macrocicles",m?`Ara: ${esc(m.name)}`:`${macros.length} creats`)}${row("plaTab","setmanes","Setmanes",`${nPlan} de 52 planificades · inici ${isDate(p.start)?fmtShort(p.start):"–"}`)}</div>`;
   const lt=tests[0];
-  h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
+  h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","zfc","Zones de FC",p.lthr?`LTHR ${p.lthr}${p.hrMax?" · màx "+p.hrMax:""} ppm`:"Posa la teva LTHR")}${row("plaTab","zftp","FTP i zones de potència",p.ftp?`FTP ${p.ftp} W${lastKg()?" · "+(p.ftp/lastKg()).toFixed(2)+" W/kg":""}`:"Posa el teu FTP")}${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
   if (st.viewUid){
     h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense Garmin connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari, macrocicles i competicions). Les sessions i els controls del matí són seus.</p>`;
     return h;
@@ -1419,6 +1464,8 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "editZones": if(st.viewUid){ toast("Els llindars els edita l'atleta des del seu compte."); break; } sheetZones(); break;
+    case "saveZones": saveZones(); break;
     case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
     case "sleepInfo": sheetSleep(el.dataset.date||todayStr()); break;
     case "acwrInfo": sheetAcwr(el.dataset.date||todayStr()); break;
