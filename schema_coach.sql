@@ -41,23 +41,23 @@ drop policy if exists "links_delete" on public.coach_links;
 create policy "links_delete" on public.coach_links for delete using (coach_id = auth.uid() or athlete_id = auth.uid());
 
 -- 4. L'entrenador pot llegir totes les dades dels seus atletes
---    i editar-ne només la planificació (plan, dayplan, macros)
+--    i editar-ne només la planificació (plan, dayplan, macros, races)
 drop policy if exists "docs_coach_read" on public.docs;
 create policy "docs_coach_read" on public.docs for select using (
   exists (select 1 from public.coach_links l where l.coach_id = auth.uid() and l.athlete_id = docs.user_id));
 drop policy if exists "docs_coach_insert" on public.docs;
 create policy "docs_coach_insert" on public.docs for insert with check (
-  coll in ('plan','dayplan','macros') and
+  coll in ('plan','dayplan','macros','races') and
   exists (select 1 from public.coach_links l where l.coach_id = auth.uid() and l.athlete_id = docs.user_id));
 drop policy if exists "docs_coach_update" on public.docs;
 create policy "docs_coach_update" on public.docs for update
-  using (coll in ('plan','dayplan','macros') and
+  using (coll in ('plan','dayplan','macros','races') and
     exists (select 1 from public.coach_links l where l.coach_id = auth.uid() and l.athlete_id = docs.user_id))
-  with check (coll in ('plan','dayplan','macros') and
+  with check (coll in ('plan','dayplan','macros','races') and
     exists (select 1 from public.coach_links l where l.coach_id = auth.uid() and l.athlete_id = docs.user_id));
 drop policy if exists "docs_coach_delete" on public.docs;
 create policy "docs_coach_delete" on public.docs for delete using (
-  coll in ('plan','dayplan','macros') and
+  coll in ('plan','dayplan','macros','races') and
   exists (select 1 from public.coach_links l where l.coach_id = auth.uid() and l.athlete_id = docs.user_id));
 
 -- 5. L'atleta canvia un codi per vincular-se

@@ -199,7 +199,7 @@ const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"");
 /* ---------------- state ---------------- */
 const st = {
   mode:"loading", uid:null, profile:null, profileLoaded:false,
-  sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, planDay:null,
+  sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, races:{}, planDay:null, grTab:"cal", calMonth:null,
   view:"avui", weekRef:monday(todayStr()), plaTab:"home", chartRange:12, stale:false,
   garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false},
   isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"",
@@ -299,7 +299,7 @@ function weekReal(ws){
 }
 
 /* ---------------- persistence ---------------- */
-const COACH_EDIT=["plan","dayplan","macros"];
+const COACH_EDIT=["plan","dayplan","macros","races"];
 async function write(kind, id, data){
   if (st.viewUid && !COACH_EDIT.includes(kind)){ toast("D'un atleta només pots editar la planificació."); return; }
   if (kind==="profile"){ st.profile={...(st.profile||{}),...data}; st.profileLoaded=true; }
@@ -317,7 +317,7 @@ async function write(kind, id, data){
 const newId = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 const SB_URL="https://usktsnbiliacshtecvsg.supabase.co", SB_KEY="sb_publishable_FwgWhuZJr0j-wxWsszczLQ_JM-ozY4R";
-const COLLS=["sessions","daily","weights","macros","plan","tests","dayplan"];
+const COLLS=["sessions","daily","weights","macros","plan","tests","dayplan","races"];
 let sb=null;
 const curUid=()=>st.viewUid||st.uid;
 async function sbUpsert(coll,id,data){ const {error}=await sb.from("docs").upsert({user_id:curUid(),coll,id,data,updated_at:new Date().toISOString()}); if(error) throw error; }
@@ -753,10 +753,78 @@ function vSetmana(){
   return h;
 }
 
+/* ---------------- Gràfics: calendari, competicions, anàlisi ---------------- */
+const MON_N=["gener","febrer","març","abril","maig","juny","juliol","agost","setembre","octubre","novembre","desembre"];
+const PRIO_COL={A:"var(--red)",B:"var(--yellow)",C:"var(--blue)"};
+function raceList(){ return Object.entries(st.races||{}).map(([id,r])=>({id,...r})).filter(r=>isDate(r.date)).sort((a,b)=>a.date<b.date?-1:1); }
+const daysTo=d=>Math.round((P(d)-P(todayStr()))/DAY);
+const yr=d=>d.slice(0,4)!==todayStr().slice(0,4)?" "+d.slice(0,4):"";
 function vGrafics(){
+  const t=st.grTab||"cal";
+  let h=`<div class="top"><div><div class="eyebrow">Temporada</div><h1>Gràfics</h1></div></div>
+  <div class="seg" role="tablist">${[["cal","Calendari"],["comp","Competicions"],["anal","Anàlisi"]].map(([k,l])=>`<button class="${t===k?"on":""}" data-act="grTab" data-t="${k}" role="tab" aria-selected="${t===k}">${l}</button>`).join("")}</div>`;
+  return h+(t==="cal"?vCalMes():t==="comp"?vComp():vAnalisi());
+}
+function vCalMes(){
+  const today=todayStr(), ym=st.calMonth||today.slice(0,7), [Y,M]=ym.split("-").map(Number);
+  const first=`${ym}-01`, start=monday(first), last=S(Date.UTC(Y,M,0));
+  const races={}; raceList().forEach(r=>(races[r.date] ||= []).push(r));
+  const done={}; sessList().forEach(x=>{ (done[x.date] ||= []).push(x); });
+  let h=`<div class="row between" style="margin-top:14px"><button class="btn ghost" style="padding:8px 12px" data-act="calM" data-d="-1" aria-label="Mes anterior">‹</button><h2 style="margin:0;text-transform:capitalize">${MON_N[M-1]} ${Y}</h2><button class="btn ghost" style="padding:8px 12px" data-act="calM" data-d="1" aria-label="Mes següent">›</button></div>`;
+  h+=`<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:10px">${["Dl","Dt","Dc","Dj","Dv","Ds","Dg"].map(x=>`<div class="small mut" style="text-align:center">${x}</div>`).join("")}`;
+  let tot={min:0,km:{},m:0};
+  for(let x=start; x<=last || dow(x)!==0; x=addD(x,1)){
+    const inM=x.slice(0,7)===ym, ds=done[x]||[], pl=dayItems(x), rc=races[x]||[], isT=x===today;
+    if(inM) ds.forEach(q=>{ tot.min+=q.min||0; if(q.disc==="Natació") tot.m+=num(q.m)||0; else if(q.disc!=="Força"&&num(q.km)) tot.km[q.disc]=(tot.km[q.disc]||0)+num(q.km); });
+    const doneD=new Set(ds.map(q=>q.disc));
+    const dots=[...ds.map(q=>`<i style="width:7px;height:7px;border-radius:50%;background:${DHEX[q.disc]}"></i>`), ...pl.filter(it=>!doneD.has(it.disc)).map(it=>`<i style="width:7px;height:7px;border-radius:50%;border:1.5px solid ${DHEX[it.disc]};box-sizing:border-box"></i>`)].slice(0,6).join("");
+    h+=`<button data-act="calDay" data-date="${x}" style="min-height:58px;padding:5px 3px;border-radius:10px;background:${rc.length?"color-mix(in srgb, var(--red) 18%, var(--card))":"var(--card)"};opacity:${inM?1:.35};display:flex;flex-direction:column;align-items:center;gap:4px;${isT?"outline:2px solid var(--brand);outline-offset:-2px;":""}" aria-label="${fmtLong(x)}"><span class="num" style="font-size:13px;font-weight:${isT?700:500}">${Number(x.slice(8))}</span>${rc.length?`<span style="font-size:13px;line-height:1">🏁</span>`:""}<span style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center">${dots}</span></button>`;
+    if(x>last && dow(x)===6) break;
+  }
+  h+=`</div><div class="legend" style="margin-top:10px"><span><i class="dot" style="background:var(--fg)"></i>fet</span><span><i class="dot" style="background:transparent;border:1.5px solid var(--fg)"></i>planificat</span><span>🏁 competició</span>${DISC.map(d=>`<span><i class="dot" style="background:${DHEX[d]}"></i>${d}</span>`).join("")}</div>`;
+  h+=`<h2>Total del mes</h2><div class="grid3"><div class="tile"><div class="lab">Hores</div><div class="val">${r1(tot.min/60)}</div><div class="sub">h</div></div><div class="tile"><div class="lab">Natació</div><div class="val">${fmtN(tot.m)}</div><div class="sub">m</div></div><div class="tile"><div class="lab">Bici · Cursa</div><div class="val" style="font-size:22px">${fmtN(tot.km.Ciclisme||0)} · ${fmtN(tot.km.Carrera||0)}</div><div class="sub">km</div></div></div>`;
+  const nx=raceList().filter(r=>r.date>=today)[0];
+  if(nx) h+=`<button class="card" data-act="grTab" data-t="comp" style="width:100%;text-align:left;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span><span class="eyebrow">Propera competició</span><b style="display:block;margin-top:2px">${esc(nx.name)}</b></span><span class="num" style="font-family:var(--disp);font-size:28px;font-weight:700">${daysTo(nx.date)}<span class="mut" style="font-size:14px"> dies</span></span></button>`;
+  return h;
+}
+function vComp(){
+  const today=todayStr(), all=raceList(), up=all.filter(r=>r.date>=today), past=all.filter(r=>r.date<today).reverse();
+  let h="";
+  const nx=up[0];
+  if(nx){ const dd=daysTo(nx.date);
+    h+=`<div class="card" style="margin-top:14px;border:1px solid ${PRIO_COL[nx.prio]||"var(--line)"}"><div class="eyebrow">Propera competició</div><div class="row between" style="align-items:flex-end;margin-top:4px"><div style="min-width:0"><h1 style="font-size:26px">${esc(nx.name)}</h1><div class="small mut" style="margin-top:4px">${esc(fmtLong(nx.date)+yr(nx.date))}${nx.approx?" · data aproximada":""}${nx.dist?" · "+esc(nx.dist):""}</div></div><div style="text-align:right;flex:none"><div class="num" style="font-family:var(--disp);font-size:52px;font-weight:700;line-height:.9">${dd}</div><div class="small mut">${dd===1?"dia":"dies"} · ${Math.floor(dd/7)} setm.</div></div></div></div>`; }
+  h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">Properes</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="editRace">+ Afegir</button></div><div class="stack" style="margin-top:10px">`;
+  h+= up.length ? up.map(raceRow).join("") : `<div class="empty">Encara no hi ha cap competició. Afegeix la primera amb <b>+ Afegir</b>.</div>`;
+  h+=`</div>`;
+  if(past.length) h+=`<h2>Fetes</h2><div class="stack">${past.map(raceRow).join("")}</div>`;
+  h+=`<p class="note" style="margin-top:10px">Prioritat A = objectiu principal · B = important · C = preparació.</p>`;
+  return h;
+}
+function raceRow(r){
+  const dd=daysTo(r.date), pastR=dd<0;
+  return `<button class="sess" data-act="editRace" data-id="${esc(r.id)}"><span class="ic" style="background:color-mix(in srgb, ${PRIO_COL[r.prio]||"var(--mut)"} 20%, transparent);color:${PRIO_COL[r.prio]||"var(--mut)"};font-family:var(--disp);font-weight:700;width:36px;height:36px">${esc(r.prio||"–")}</span><span class="t"><span class="t1">${esc(r.name)}</span><span class="t2">${esc(fmtShort(r.date)+yr(r.date))}${r.approx?" (aprox.)":""}${r.type?" · "+esc(r.type):""}${r.dist?" · "+esc(r.dist):""}${pastR&&r.result?" · "+esc(r.result):""}</span></span><span class="ld">${pastR?"✓":dd}<small>${pastR?"":"DIES"}</small></span></button>`;
+}
+function sheetRace(id){
+  const ex=id?{...st.races[id]}:{date:addD(todayStr(),30),prio:"B",type:"Triatló"}; sheetState={kind:"race",id};
+  let h=sheetHead(id?"Editar competició":"Nova competició");
+  h+=`<div class="field"><label for="r-name">Nom</label><input class="in-t" id="r-name" maxlength="60" value="${esc(ex.name||"")}" placeholder="Ironman Calella"></div>
+  <div class="f2"><div class="field"><label for="r-date">Data</label><input class="in-t" id="r-date" type="date" value="${esc(ex.date||"")}"></div><div class="field"><label for="r-type">Tipus</label><select class="in-t" id="r-type">${["Triatló","Duatló","Cursa","Bici","Natació","Altres"].map(x=>`<option ${ex.type===x?"selected":""}>${x}</option>`).join("")}</select></div></div>
+  <div class="f2"><div class="field"><label for="r-dist">Distància</label><input class="in-t" id="r-dist" maxlength="40" value="${esc(ex.dist||"")}" placeholder="Full · 3,8/180/42"></div><div class="field"><label for="r-prio">Prioritat</label><select class="in-t" id="r-prio">${["A","B","C"].map(x=>`<option ${ex.prio===x?"selected":""}>${x}</option>`).join("")}</select></div></div>
+  <button type="button" class="toggle" style="width:100%" data-act="raceApprox"><span style="text-align:left"><b>Data aproximada</b><span class="note" style="display:block;margin:0">Encara no és oficial</span></span><span class="sw ${ex.approx?"on":""}" id="r-approx"><i></i></span></button>
+  <div class="field"><label for="r-res">Resultat / notes</label><input class="in-t" id="r-res" maxlength="80" value="${esc(ex.result||"")}" placeholder="4:35:12 · 12è grup d'edat"></div>
+  <div class="err" id="r-err"></div><button class="btn pri block" data-act="saveRace">Guardar</button>${id?`<button class="btn block" style="margin-top:8px;color:var(--red)" data-act="delRace">Eliminar</button>`:""}`;
+  openSheet(h);
+}
+function saveRace(){
+  const q=i=>document.querySelector(i), name=q("#r-name").value.trim(), date=q("#r-date").value, err=q("#r-err");
+  if(!name){ err.textContent="Posa el nom."; return; } if(!isDate(date)){ err.textContent="Posa la data."; return; }
+  const id=sheetState.id||newId();
+  const data={name,date,type:q("#r-type").value,dist:q("#r-dist").value.trim(),prio:q("#r-prio").value,approx:q("#r-approx").classList.contains("on"),result:q("#r-res").value.trim()};
+  closeSheet(); write("races",id,data); toast("Competició guardada");
+}
+function vAnalisi(){
   const n=st.chartRange;
-  return `<div class="top"><div><div class="eyebrow">Evolució</div><h1>Gràfics</h1></div></div>
-  <div class="seg" role="tablist">${[8,12,26].map(k=>`<button class="${n===k?"on":""}" data-act="range" data-n="${k}">${k} setm.</button>`).join("")}</div>
+  return `<div class="seg" style="margin-top:12px" role="tablist">${[8,12,26].map(k=>`<button class="${n===k?"on":""}" data-act="range" data-n="${k}">${k} setm.</button>`).join("")}</div>
   <h2>Càrrega setmanal per disciplina</h2><div class="card"><div class="chartbox"><canvas id="c1" aria-label="Càrrega setmanal per disciplina"></canvas></div></div>
   <h2>Aguda vs crònica</h2><div class="card"><div class="chartbox"><canvas id="c2" aria-label="Càrrega aguda i crònica diària"></canvas></div><div class="note">Aguda = últims 7 dies. Crònica = últims 21 dies ÷ 3.</div></div>
   <h2>ACWR setmanal</h2><div class="card"><div class="chartbox" style="height:180px"><canvas id="c3" aria-label="ACWR setmanal"></canvas></div><div class="legend"><span><i class="dot" style="background:var(--green)"></i>0,8-1,3</span><span><i class="dot" style="background:var(--yellow)"></i>1,3-1,5</span><span><i class="dot" style="background:var(--red)"></i>&gt;1,5</span><span><i class="dot" style="background:var(--blue)"></i>&lt;0,8</span></div></div>
@@ -811,7 +879,7 @@ function vProfile(){
   const lt=tests[0];
   h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
   if (st.viewUid){
-    h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense Garmin connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari i macrocicles). Les sessions i els controls del matí són seus.</p>`;
+    h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense Garmin connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari, macrocicles i competicions). Les sessions i els controls del matí són seus.</p>`;
     return h;
   }
   if (st.isCoach){
@@ -853,7 +921,7 @@ function render(){
   const v = st.view;
   app.innerHTML = banner + (v==="avui"?vAvui():v==="setmana"?vSetmana():v==="grafics"?vGrafics():vPla());
   renderTabs();
-  if (v==="grafics") drawCharts();
+  if (v==="grafics" && (st.grTab||"cal")==="anal") drawCharts();
   if (v==="pla" && st.plaTab==="pes") drawWeight("cw");
   if (v==="pla" && st.plaTab==="tests") drawTests();
 }
@@ -1290,6 +1358,13 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "grTab": st.grTab=el.dataset.t; render(); window.scrollTo(0,0); break;
+    case "calM": { const [Y,M]=(st.calMonth||todayStr().slice(0,7)).split("-").map(Number); const d=new Date(Date.UTC(Y,M-1+Number(el.dataset.d),1)); st.calMonth=`${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}`; render(); break; }
+    case "calDay": st.planDay=el.dataset.date; st.view="avui"; render(); window.scrollTo(0,0); break;
+    case "editRace": sheetRace(el.dataset.id||null); break;
+    case "saveRace": saveRace(); break;
+    case "delRace": { const id=sheetState.id; closeSheet(); write("races",id,null); toast("Competició eliminada"); break; }
+    case "raceApprox": document.querySelector("#r-approx").classList.toggle("on"); break;
     case "actDetail": sheetDetail(el.dataset.id); break;
     case "pushCfg": sheetPush(); break;
     case "pushOn": pushOn(); break;
