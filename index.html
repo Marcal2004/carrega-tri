@@ -892,7 +892,7 @@ function vAnalisi(){
 
 /* ---------------- zones ---------------- */
 const HR_Z=[["Z1","Recuperació",0,.68],["Z2","Aeròbic / resistència",.69,.83],["Z3","Tempo",.84,.94],["Z4","Llindar",.95,1.05],["Z5","VO2 màx",1.06,null]];
-const PW_Z=[["Z1","Recuperació activa",0,.55],["Z2","Resistència",.56,.75],["Z3","Tempo",.76,.90],["Z4","Llindar",.91,1.05],["Z5","VO2 màx",1.06,1.20],["Z6","Anaeròbic",1.21,1.50],["Z7","Neuromuscular",1.51,null]];
+const PW_Z=[["Z1","Recuperació activa",0,.55],["Z2","Resistència",.56,.75],["Z3","Tempo",.76,.90],["Z4","Llindar",.91,1.05],["Z5","VO2 màx i anaeròbic",1.06,null]];
 const ZC=["#8B939C","#4DA3FF","#3DDC84","#FFD60A","#FF9F0A","#FF453A","#BF5AF2"];
 function zoneTable(rows,unit){
   return `<div class="card" style="margin-top:10px">${rows.map((r,i)=>`<div style="display:grid;grid-template-columns:38px 1fr auto;gap:10px;align-items:center;padding:9px 0;${i?"border-top:1px solid var(--line)":""}"><b style="color:${ZC[i]};font-family:var(--disp);font-size:18px">${r[0]}</b><span><span style="display:block;font-weight:600">${r[1]}</span><span class="small mut">${r[4]}</span></span><span class="num" style="font-weight:700">${r[2]}${unit}</span></div>`).join("")}</div>`;
