@@ -1256,6 +1256,9 @@ function vDayPlan(){
   for(let i=0;i<7;i++){ const x=addD(ws,i), it=dayItems(x), on=x===sel;
     h+=`<button data-act="pickDay" data-date="${x}" style="background:${on?"var(--brand)":"var(--card)"};color:${on?"var(--on-brand)":"var(--fg)"};border-radius:10px;padding:7px 0 6px;display:flex;flex-direction:column;align-items:center;gap:3px;${x===today&&!on?"outline:1px solid var(--brand);outline-offset:-1px;":""}"><span style="font-family:var(--disp);font-weight:600;font-size:12px;letter-spacing:.06em;${on?"":"color:var(--mut)"}">${DAYS[i]}</span><span class="num" style="font-family:var(--disp);font-weight:700;font-size:17px;line-height:1">${Number(x.slice(8))}</span><span style="display:flex;gap:2px;height:7px">${it.length?it.map(t=>`<span class="dot" style="width:6px;height:6px;background:${on?"var(--on-brand)":DHEX[t.disc]}"></span>`).join(""):""}</span></button>`; }
   h+=`</div><button class="btn ghost" style="padding:8px 10px;flex:none" data-act="dayWk" data-d="7" aria-label="Setmana següent">›</button></div>`;
+  { const nx=raceList().filter(r=>r.date>=today)[0];
+    if(nx){ const dd=daysTo(nx.date);
+      h+=`<button data-act="goRaces" style="width:100%;margin-top:14px;padding:14px 16px;border-radius:16px;border:1px solid ${PRIO_COL[nx.prio]||"var(--brand)"};background:linear-gradient(135deg,color-mix(in srgb, ${PRIO_COL[nx.prio]||"var(--brand)"} 22%, var(--card)),var(--card));display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;color:var(--fg)"><span style="min-width:0"><span class="eyebrow">🏁 Propera cursa</span><b style="display:block;font-size:18px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nx.name)}</b><span class="small mut">${esc(fmtShort(nx.date)+yr(nx.date))}${nx.approx?" · aprox.":""}</span><span style="display:block;margin-top:6px;font-family:var(--disp);font-weight:700;font-style:italic;letter-spacing:.04em;color:var(--brand)">«QUE FALLE OTRO»</span></span><span style="text-align:right;flex:none"><span class="num" style="display:block;font-family:var(--disp);font-weight:700;font-size:44px;line-height:.9">${dd}</span><span class="small mut">${dd===0?"és avui!":dd===1?"dia":"dies"}</span></span></button>`; } }
   h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">${esc(title)}</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="editDay" data-date="${sel}">Editar</button></div>`;
   h+=`<div class="stack" style="margin-top:10px">`;
   if(!items.length) h+=`<div class="empty">${st.dayplan[sel]?"Dia de descans":"Res planificat aquest dia."}${note?`<div class="small" style="margin-top:6px">${esc(note)}</div>`:""}</div>`;
@@ -1419,6 +1422,7 @@ document.addEventListener("click", e=>{
     case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
     case "sleepInfo": sheetSleep(el.dataset.date||todayStr()); break;
     case "acwrInfo": sheetAcwr(el.dataset.date||todayStr()); break;
+    case "goRaces": st.view="grafics"; st.grTab="comp"; render(); window.scrollTo(0,0); break;
     case "grTab": st.grTab=el.dataset.t; render(); window.scrollTo(0,0); break;
     case "calM": { const [Y,M]=(st.calMonth||todayStr().slice(0,7)).split("-").map(Number); const d=new Date(Date.UTC(Y,M-1+Number(el.dataset.d),1)); st.calMonth=`${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}`; render(); break; }
     case "calDay": st.planDay=el.dataset.date; st.view="avui"; render(); window.scrollTo(0,0); break;
