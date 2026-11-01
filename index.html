@@ -349,7 +349,9 @@ async function startSession(session){
   st.uid=session.user.id; st.email=session.user.email; st.mode="loading"; render();
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
-  render(); loadCoach().then(render); loadPush().then(render); syncGarmin(false);
+  await loadCoach();
+  if(st.isCoach){ st.cview="panel"; render(); loadTpl(); loadAthData().then(render); return; }
+  render(); loadPush().then(render); syncGarmin(false);
   if(/[?&]morning=1/.test(location.search)){ history.replaceState(null,"",location.pathname); if(!st.viewUid) sheetMorning(todayStr()); }
 }
 /* ---------------- recordatori (notificacions) ---------------- */
@@ -410,7 +412,7 @@ async function loadCoach(){
     const mine=(links||[]).filter(l=>l.coach_id===st.uid);
     const names={};
     if(mine.length){ const {data:pr}=await sb.from("docs").select("user_id,name:data->>name").eq("coll","profile").in("user_id",mine.map(l=>l.athlete_id)); (pr||[]).forEach(r=>names[r.user_id]=r.name); }
-    st.athletes=mine.map(l=>({...l,name:names[l.athlete_id]||""})).sort((a,b)=>(a.name||a.athlete_email||"").localeCompare(b.name||b.athlete_email||""));
+    st.athletes=mine.map(l=>({...l,name:names[l.athlete_id]||userLabel(l.athlete_email||"")})).sort((a,b)=>(a.name||a.athlete_email||"").localeCompare(b.name||b.athlete_email||""));
   }catch(e){}
 }
 async function viewAthlete(uid){
@@ -440,7 +442,7 @@ async function redeem(){
 }
 function sheetAthlete(uid){
   const a=st.athletes.find(x=>x.athlete_id===uid); if(!a) return; sheetState={kind:"ath",uid};
-  openSheet(sheetHead(a.name||a.athlete_email||"Atleta",a.athlete_email||"")+`<div class="field"><label for="a-int">ID d'intervals.icu</label><input class="in-t" id="a-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"><div class="note">L'atleta t'ha d'afegir com a entrenador a intervals.icu. El seu ID surt a la seva pàgina de Configuració d'intervals.</div></div><div class="err" id="a-err"></div>
+  openSheet(sheetHead(a.name||userLabel(a.athlete_email)||"Atleta",userLabel(a.athlete_email||""))+`<div class="field"><label for="a-int">ID d'intervals.icu</label><input class="in-t" id="a-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"><div class="note">L'atleta t'ha d'afegir com a entrenador a intervals.icu. El seu ID surt a la seva pàgina de Configuració d'intervals.</div></div><div class="err" id="a-err"></div>
   <button class="btn pri block" data-act="saveAth">Guardar</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="unlinkAth">Desvincular atleta</button>`);
 }
 async function saveAth(){
@@ -461,15 +463,18 @@ function vLogin(){
   const t={in:["Entra","Entrar"],up:["Crea el compte","Crear compte"],reset:["Recupera la contrasenya","Enviar enllaç"],newpass:["Nova contrasenya","Guardar"]}[m];
   return `<div class="photo main" style="height:200px"><img src="${IMG_BIKE}" alt=""><div class="ov"><div class="eyebrow">Càrrega Tri</div><h1>${t[0]}</h1></div></div>
   <div class="card"><form id="lf" onsubmit="return false">
-  ${m!=="newpass"?`<div class="field" style="margin-top:0"><label for="l-email">Correu</label><input class="in-t" id="l-email" type="email" autocomplete="email" required></div>`:""}
+  ${m!=="newpass"?`<div class="field" style="margin-top:0"><label for="l-email">${m==="reset"?"Correu":"Usuari o correu"}</label><input class="in-t" id="l-email" type="${m==="reset"?"email":"text"}" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="${m==="reset"?"el-teu@correu.com":"marcal"}"></div>`:""}
   ${m!=="reset"?`<div class="field"><label for="l-pass">Contrasenya</label><input class="in-t" id="l-pass" type="password" autocomplete="${m==="in"?"current-password":"new-password"}" minlength="6" required></div>`:""}
   <div class="err" id="l-err"></div><button class="btn pri block" data-act="login">${t[1]}</button></form>
   <div class="row between small" style="margin-top:12px;flex-wrap:wrap">${m==="in"?`<button class="mut" data-act="loginMode" data-m="up">Crear un compte</button><button class="mut" data-act="loginMode" data-m="reset">He oblidat la contrasenya</button>`:`<button class="mut" data-act="loginMode" data-m="in">‹ Tornar a entrar</button>`}</div></div>`;
 }
 async function doLogin(){
   const g=i=>document.getElementById(i)?.value.trim(), err=document.getElementById("l-err"), m=st.loginMode||"in";
-  const email=g("l-email"), pass=document.getElementById("l-pass")?.value||"";
+  const raw=g("l-email"), pass=document.getElementById("l-pass")?.value||"";
   err.textContent="";
+  const email=m==="newpass"?"":toLoginEmail(raw);
+  if(m!=="newpass"&&!email){ err.style.color=""; err.textContent="El nom d'usuari ha de tenir 3-30 caràcters: lletres, números, punt, guió o guió baix (sense espais ni accents)."; return; }
+  if(m==="reset"&&email.endsWith("@"+USER_DOMAIN)){ err.style.color=""; err.textContent="Els comptes amb nom d'usuari no poden recuperar la contrasenya per correu. Demana-ho al teu entrenador."; return; }
   try{
     if(m==="in"){ const {data,error}=await sb.auth.signInWithPassword({email,password:pass}); if(error) throw error; startSession(data.session); }
     else if(m==="up"){ const {data,error}=await sb.auth.signUp({email,password:pass,options:{emailRedirectTo:location.origin+location.pathname}}); if(error) throw error; if(data.session) startSession(data.session); else { err.style.color="var(--green)"; err.textContent="Revisa el correu i confirma el compte. Després torna aquí i entra."; } }
@@ -635,6 +640,223 @@ async function sheetDetail(id){
     m.fitBounds(line.getBounds(),{padding:[16,16]}); setTimeout(()=>m.invalidateSize(),150);
   }catch(e){ const el=document.getElementById("d-map"); if(el) el.innerHTML=`<div class="empty">No s'ha pogut carregar el mapa.</div>`; } }
 }
+
+/* ================= MODE ENTRENADOR ================= */
+const USER_DOMAIN="usuaris.carregatri.app";
+function toLoginEmail(v){ v=String(v||"").trim(); if(v.includes("@")) return v.toLowerCase(); const u=v.toLowerCase(); if(!/^[a-z0-9._-]{3,30}$/.test(u)) return null; return `${u}@${USER_DOMAIN}`; }
+function userLabel(e){ e=String(e||""); return e.endsWith("@"+USER_DOMAIN) ? e.slice(0,-(USER_DOMAIN.length+1)) : e; }
+const ATH_COLS=["sessions","daily","weights","macros","plan","tests","dayplan","races"];
+const athColor=i=>["#FFD60A","#4DA3FF","#FF453A","#3DDC84","#BF5AF2","#FF9F0A","#64D2FF","#FF6482"][i%8];
+
+async function loadAthData(){
+  const ids=st.athletes.map(a=>a.athlete_id); const out={};
+  ids.forEach(id=>{ out[id]={profile:{}}; ATH_COLS.forEach(c=>out[id][c]={}); });
+  if(!ids.length){ st.athData=out; return; }
+  try{
+    let from=0;
+    while(true){ const {data,error}=await sb.from("docs").select("user_id,coll,id,data").in("user_id",ids).neq("coll","profile").range(from,from+999); if(error) throw error;
+      for(const r of data){ if(out[r.user_id]&&out[r.user_id][r.coll]) out[r.user_id][r.coll][r.id]=r.data; }
+      if(data.length<1000) break; from+=1000; }
+    const {data:pr}=await sb.from("docs").select("user_id,name:data->>name,photo:data->>photo,hrvLo:data->hrvLo,hrvHi:data->hrvHi,coefs:data->coefs,trans:data->trans,start:data->>start,lthr:data->lthr,ftp:data->ftp").eq("coll","profile").in("user_id",ids);
+    (pr||[]).forEach(r=>{ if(out[r.user_id]){ const {user_id,...p}=r; Object.keys(p).forEach(k=>p[k]==null&&delete p[k]); out[r.user_id].profile=p; } });
+  }catch(e){ toast("No s'han pogut carregar les dades dels atletes."); }
+  st.athData=out; st.athLoaded=Date.now();
+}
+function withAth(uid,fn){
+  const d=st.athData?.[uid]; if(!d) return null;
+  const keep={profile:st.profile}; ATH_COLS.forEach(c=>keep[c]=st[c]);
+  st.profile=d.profile; ATH_COLS.forEach(c=>st[c]=d[c]);
+  try{ return fn(); } finally { st.profile=keep.profile; ATH_COLS.forEach(c=>st[c]=keep[c]); }
+}
+function athName(a){ return a.name||userLabel(a.athlete_email)||"Atleta"; }
+function athAvatar(uid,size=44){ const p=st.athData?.[uid]?.profile||{}; const src=(typeof p.photo==="string"&&p.photo.startsWith("data:image/"))?p.photo:IMG_RUN; return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:${p.photo?"50% 50%":"50% 20%"};background:var(--card2);flex:none">`; }
+
+/* resum d'un atleta per al panell */
+function athSummary(uid){
+  return withAth(uid,()=>{
+    const today=todayStr(), y=addD(today,-1), rec=recovery(today), {tot}=dayMaps(), ac=acuteChronic(today,tot), z=acwrZone(ac.acwr);
+    const ws=monday(today), pl=planned(ws), wr=weekReal(ws);
+    const dd=st.daily[today]||{}, gg=dd.garmin||{};
+    const hv=(dd.hrv??gg.hrvG)!=null?Math.round(dd.hrv??gg.hrvG):null, rg=hrvRange();
+    const sl=dd.sleepScore??gg.sleepScore??null;
+    const qDone=rec?.total!=null;
+    let planN=0, doneN=0, missed=[];
+    for(let i=0;i<7;i++){ const d=addD(ws,i); if(d>today) break; const ss=sessList().filter(s=>s.date===d), used=new Set();
+      for(const it of dayItems(d)){ planN++; const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m){ used.add(m.id); doneN++; } else if(d<today) missed.push({d,it}); } }
+    const pend=sessList().filter(s=>s.pending).length;
+    const nx=raceList().filter(r=>r.date>=today)[0];
+    const alerts=[];
+    if(rec?.color==="var(--red)") alerts.push(["Recuperació baixa","var(--red)"]);
+    else if(rec?.color==="var(--yellow)") alerts.push(["Precaució","var(--yellow)"]);
+    if(ac.acwr!=null&&ac.acwr>1.5) alerts.push(["ACWR "+ac.acwr.toFixed(2),"var(--red)"]); else if(ac.acwr!=null&&ac.acwr>1.3) alerts.push(["ACWR "+ac.acwr.toFixed(2),"var(--yellow)"]); else if(ac.acwr!=null&&ac.acwr<0.8) alerts.push(["ACWR baix","var(--blue)"]);
+    if(!qDone) alerts.push(["Sense qüestionari","var(--mut)"]);
+    if(missed.some(m=>m.d===y)) alerts.push(["Ahir no va entrenar","var(--yellow)"]);
+    if(pend>=3) alerts.push([pend+" RPE pendents","var(--yellow)"]);
+    return {rec,ac,z,pl,wr,hv,rg,sl,qDone,planN,doneN,missed,pend,nx,alerts,tot};
+  });
+}
+
+/* ---------- vistes ---------- */
+function coachHead(eyebrow,title,right=""){ return `<div class="top"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1></div>${right}</div>`; }
+function vCoachPanel(){
+  const A=st.athletes;
+  let h=coachHead("Entrenador", "Panell", `<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cRefresh">↻ Actualitzar</button>`);
+  if(!A.length) return h+`<div class="empty" style="margin-top:14px">Encara no tens atletes. Ves a <b>Jo › Convidar atleta</b> per generar un codi.</div>`;
+  if(!st.athData) return h+`<div class="empty" style="margin-top:14px">Carregant atletes…</div>`;
+  const sums=A.map(a=>({a,s:athSummary(a.athlete_id)})).filter(x=>x.s);
+  const nAl=sums.filter(x=>x.s.alerts.some(al=>al[1]==="var(--red)"||al[1]==="var(--yellow)")).length, nQ=sums.filter(x=>x.s.qDone).length;
+  h+=`<div class="grid3" style="margin-top:12px"><div class="tile"><div class="lab">Atletes</div><div class="val">${A.length}</div><div class="sub">actius</div></div><div class="tile"><div class="lab">Qüestionari</div><div class="val">${nQ}/${A.length}</div><div class="sub">fet avui</div></div><div class="tile"><div class="lab">Alertes</div><div class="val" style="color:${nAl?"var(--yellow)":"var(--green)"}">${nAl}</div><div class="sub">atletes</div></div></div>`;
+  h+=`<div class="stack" style="margin-top:12px">`;
+  for(const {a,s} of sums){
+    const rp=s.rec?.pct??(s.rec?.hp!=null?Math.round(s.rec.hp):null), rcol=s.rec?.color&&s.rec.color!=="var(--mut)"?s.rec.color:"var(--mut2)";
+    const hv=s.hv, rg=s.rg, vcol=hv==null||!rg?"var(--fg)":hv<rg.lo?"var(--yellow)":hv>rg.hi?"var(--blue)":"var(--green)";
+    const pc=s.pl&&s.pl.load?s.wr.load/s.pl.load:null;
+    h+=`<div class="card" style="padding:14px">
+      <button data-act="cOpen" data-id="${a.athlete_id}" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;color:var(--fg)">${athAvatar(a.athlete_id)}<span style="flex:1;min-width:0"><b style="display:block;font-size:17px">${esc(athName(a))}</b><span class="small mut">${s.nx?`🏁 ${esc(s.nx.name)} · ${daysTo(s.nx.date)} dies`:"Sense competicions"}</span></span><span class="mut" style="font-size:22px">›</span></button>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:12px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span style="position:relative;width:52px;height:52px">${ringSvg(rp!=null?rp/100:0,rcol,52)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${rp??"–"}</span></span><span class="small mut">Recup.</span></div>
+        <div class="tile" style="padding:8px 6px;text-align:center"><div class="lab">VFC</div><div class="val" style="font-size:20px;color:${vcol}">${hv??"–"}</div><div class="sub">${s.sl!=null?"son "+s.sl:"ms"}</div></div>
+        <div class="tile" style="padding:8px 6px;text-align:center"><div class="lab">ACWR</div><div class="val" style="font-size:20px;color:${s.z?s.z[1]:"var(--fg)"}">${s.ac.acwr!=null?s.ac.acwr.toFixed(2):"–"}</div><div class="sub">${s.z?s.z[0]:"< 21 d"}</div></div>
+        <div class="tile" style="padding:8px 6px;text-align:center"><div class="lab">Setmana</div><div class="val" style="font-size:20px;color:${pc==null?"var(--fg)":(pc<0.85||pc>1.15)?"var(--yellow)":"var(--green)"}">${pc!=null?Math.round(pc*100)+"%":"–"}</div><div class="sub">${r1(s.wr.min/60)}${s.pl?.hours!=null?"/"+r1(s.pl.hours):""} h</div></div></div>
+      <div class="row between small" style="margin-top:10px;gap:8px;flex-wrap:wrap"><span class="mut">Entrenos: <b style="color:var(--fg)">${s.doneN}/${s.planN}</b> fets fins avui${s.missed.length?` · <span style="color:var(--red)">${s.missed.length} no fets</span>`:""}</span><span class="mut">Avui ${fmtN(s.tot[todayStr()]||0)} UA</span></div>
+      ${s.alerts.length?`<div class="chips" style="margin-top:8px">${s.alerts.map(([t,c])=>`<span class="chip" style="border:1px solid ${c};color:${c}">${esc(t)}</span>`).join("")}</div>`:`<div class="small" style="margin-top:8px;color:var(--green)">✓ Tot correcte</div>`}
+      <div class="row" style="gap:8px;margin-top:10px"><button class="btn ghost" style="flex:1;padding:8px;font-size:13px" data-act="cPlanAth" data-id="${a.athlete_id}">Planificar</button><button class="btn ghost" style="flex:1;padding:8px;font-size:13px" data-act="cOpen" data-id="${a.athlete_id}">Veure fitxa</button></div>
+    </div>`;
+  }
+  return h+`</div>`;
+}
+
+function vCoachPlan(){
+  const A=st.athletes;
+  let h=coachHead("Entrenador","Planificar");
+  if(!A.length) return h+`<div class="empty" style="margin-top:14px">Encara no tens atletes.</div>`;
+  h+=`<div class="chips" style="margin-top:12px">${A.map(a=>`<button class="chip" data-act="cPlanAth" data-id="${a.athlete_id}" style="${st.viewUid===a.athlete_id?"background:var(--brand);color:var(--on-brand);border-color:var(--brand)":""}">${esc(athName(a))}</button>`).join("")}</div>`;
+  if(!st.viewUid) return h+`<div class="empty" style="margin-top:14px">Tria un atleta per planificar-li la setmana.</div>`;
+  if(st.mode==="loading") return h+`<div class="empty">Carregant…</div>`;
+  const ws=st.cWeek||monday(todayStr()), we=addD(ws,6), pl=planned(ws), wr=weekReal(ws), today=todayStr();
+  h+=`<div class="row between" style="margin-top:14px"><button class="btn ghost" style="padding:8px 12px" data-act="cWk" data-d="-7">‹</button><div style="text-align:center"><b>Setmana ${weekNo(ws)}</b><div class="small mut">${fmtShort(ws)} – ${fmtShort(we)}${pl?.p?.micro?" · "+esc(pl.p.micro):""}</div></div><button class="btn ghost" style="padding:8px 12px" data-act="cWk" data-d="7">›</button></div>`;
+  h+=`<div class="card" style="margin-top:10px;padding:12px"><div class="row between"><span class="small mut">Objectiu</span><button class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="editPlan" data-ws="${ws}">Editar objectius</button></div>
+    <div style="margin-top:4px">${pl?.p?.goal?esc(pl.p.goal):'<span class="mut">Sense objectiu</span>'}</div>
+    <div class="small mut" style="margin-top:6px">${DISC.map(d=>{ const hh=num(pl?.p?.h?.[DKEY[d]]); return `<span style="margin-right:10px"><span class="dot" style="background:${DHEX[d]}"></span> ${r1((wr.minD[d]||0)/60)}${hh!=null?"/"+hh:""} h</span>`; }).join("")}</div></div>`;
+  h+=`<div class="stack" style="margin-top:10px">`;
+  for(let i=0;i<7;i++){ const d=addD(ws,i), its=dayItems(d), ss=sessList().filter(s=>s.date===d), used=new Set(), note=st.dayplan[d]?.note||"";
+    h+=`<div class="day ${d===today?"today-ring":""}"><div class="dayh"><span class="d">${DAYS[i]} ${Number(d.slice(8))}</span><button class="btn ghost" style="padding:6px 12px;font-size:12px" data-act="editDay" data-date="${d}">${its.length||st.dayplan[d]?"Editar":"+ Afegir"}</button></div>`;
+    if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">`;
+      for(const it of its){ const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m) used.add(m.id); const stc=m?"var(--green)":d<today?"var(--red)":"var(--mut2)";
+        h+=`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2)"><span class="dot" style="background:${DHEX[it.disc]};margin-top:6px"></span><span style="flex:1;min-width:0"><b style="font-size:14px">${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${it.detail?`<span class="small mut" style="display:block;white-space:pre-line;margin-top:2px">${esc(it.detail)}</span>`:""}</span><span class="small" style="color:${stc};flex:none">${m?"✓ fet":d<today?"✕":""}</span></div>`; }
+      h+=`</div>`; }
+    else h+=`<div class="small mut" style="margin-top:6px">${st.dayplan[d]?"Descans":"Res planificat"}</div>`;
+    if(note) h+=`<div class="note" style="margin:6px 0 0">${esc(note)}</div>`;
+    h+=`</div>`; }
+  h+=`</div><button class="btn block" style="margin-top:12px" data-act="cCopy">📋 Copiar aquesta setmana…</button><button class="btn block" style="margin-top:8px" data-act="cTpl">⭐ Plantilles d'entrenos</button>`;
+  return h;
+}
+
+function vCoachAnal(){
+  const A=st.athletes;
+  let h=coachHead("Entrenador","Anàlisi");
+  if(!A.length) return h+`<div class="empty" style="margin-top:14px">Encara no tens atletes.</div>`;
+  if(!st.athData) return h+`<div class="empty" style="margin-top:14px">Carregant…</div>`;
+  const sums=A.map(a=>({a,s:athSummary(a.athlete_id)})).filter(x=>x.s);
+  const al=sums.flatMap(({a,s})=>s.alerts.filter(x=>x[0]!=="Sense qüestionari"||true).map(x=>({a,t:x[0],c:x[1]})));
+  h+=`<h2>Alertes</h2>`+(al.length?`<div class="stack">${al.map(x=>`<button class="sess" data-act="cOpen" data-id="${x.a.athlete_id}">${athAvatar(x.a.athlete_id,36)}<span class="t"><span class="t1">${esc(athName(x.a))}</span><span class="t2" style="color:${x.c}">${esc(x.t)}</span></span><span class="mut">›</span></button>`).join("")}</div>`:`<div class="empty">Cap alerta. Tot correcte 👌</div>`);
+  h+=`<h2>Càrrega setmanal (8 setm.)</h2><div class="card"><div class="chartbox"><canvas id="cc1"></canvas></div></div>`;
+  h+=`<h2>ACWR diari (28 dies)</h2><div class="card"><div class="chartbox"><canvas id="cc2"></canvas></div><div class="note">Zona òptima 0,8 – 1,3.</div></div>`;
+  h+=`<h2>Recuperació (14 dies)</h2><div class="card"><div class="chartbox"><canvas id="cc3"></canvas></div></div>`;
+  h+=`<h2>Resum de la setmana</h2><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>Atleta</th><th>Hores</th><th>UA</th><th>Compl.</th><th>Fets</th></tr></thead><tbody>${sums.map(({a,s})=>{ const pc=s.pl&&s.pl.load?s.wr.load/s.pl.load:null; return `<tr><td>${esc(athName(a))}</td><td>${r1(s.wr.min/60)}${s.pl?.hours!=null?"/"+r1(s.pl.hours):""}</td><td>${fmtN(s.wr.load)}</td><td>${pc!=null?Math.round(pc*100)+"%":"–"}</td><td>${s.doneN}/${s.planN}</td></tr>`; }).join("")}</tbody></table></div>`;
+  return h;
+}
+function drawCoachCharts(){
+  if(!chartBase()||!st.athData) return;
+  const A=st.athletes, today=todayStr(), wk=[...Array(8)].map((_,i)=>addD(monday(today),(i-7)*7)), d28=[...Array(28)].map((_,i)=>addD(today,i-27)), d14=d28.slice(-14);
+  const ds1=[], ds2=[], ds3=[];
+  A.forEach((a,i)=>{ const col=athColor(i); withAth(a.athlete_id,()=>{ const {tot}=dayMaps();
+    ds1.push({label:athName(a),data:wk.map(w=>Math.round(weekReal(w).load)),borderColor:col,backgroundColor:col,tension:.3,pointRadius:2});
+    ds2.push({label:athName(a),data:d28.map(d=>{ const x=acuteChronic(d,tot).acwr; return x!=null?Math.round(x*100)/100:null; }),borderColor:col,tension:.3,pointRadius:0,spanGaps:true});
+    ds3.push({label:athName(a),data:d14.map(d=>{ const r=recovery(d); return r?.pct??null; }),borderColor:col,tension:.3,pointRadius:2,spanGaps:true}); }); });
+  const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:"#8B939C",boxWidth:10}}},scales:{x:gridOpt,y:gridOpt}};
+  const e1=document.getElementById("cc1"), e2=document.getElementById("cc2"), e3=document.getElementById("cc3");
+  if(e1) charts.push(new Chart(e1,{type:"line",data:{labels:wk.map(fmtShort),datasets:ds1},options:opt}));
+  if(e2) charts.push(new Chart(e2,{type:"line",data:{labels:d28.map(fmtShort),datasets:ds2},options:{...opt,scales:{x:gridOpt,y:{...gridOpt,suggestedMin:0.5,suggestedMax:1.6}}}}));
+  if(e3) charts.push(new Chart(e3,{type:"line",data:{labels:d14.map(fmtShort),datasets:ds3},options:{...opt,scales:{x:gridOpt,y:{...gridOpt,min:0,max:100}}}}));
+}
+
+function vCoachJo(){
+  const row=(act,t,title,sub,extra="")=>`<button class="prow" data-act="${act}"${t?` data-t="${t}"`:""}${extra}><span style="min-width:0"><span style="display:block;font-weight:600">${title}</span>${sub?`<span class="small mut" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</span>`:""}</span><span class="mut" style="font-size:22px;line-height:1">›</span></button>`;
+  let h=`<div class="card" style="display:flex;align-items:center;gap:14px;margin-top:4px"><div style="width:64px;height:64px;border-radius:50%;overflow:hidden;background:var(--card2);border:2px solid var(--brand);flex:none"><img src="${IMG_RUN}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:50% 20%"></div><div><div class="eyebrow">Entrenador</div><h1 style="margin-top:2px">${esc(userLabel(st.email))}</h1><div class="small mut">${st.athletes.length} atletes</div></div></div>`;
+  h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("cAthCfg","",esc(athName(a)),esc(userLabel(a.athlete_email||""))+" · "+(a.intervals_id?"Garmin ✓ "+esc(a.intervals_id):"sense Garmin"),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
+  h+=`<h2>Planificació</h2><div class="plist">${row("cTpl","","Plantilles d'entrenos",`${Object.keys(st.tpl||{}).length} guardades`)}</div>`;
+  h+=`<h2>Compte</h2><div class="plist">${row("logout","","Tancar sessió",esc(userLabel(st.email||"")))}</div>`;
+  return h;
+}
+
+/* ---------- plantilles ---------- */
+async function loadTpl(){ try{ const {data}=await sb.from("docs").select("id,data").eq("user_id",st.uid).eq("coll","tpl"); const o={}; (data||[]).forEach(r=>o[r.id]=r.data); st.tpl=o; }catch(e){ st.tpl={}; } }
+function tplList(){ return Object.entries(st.tpl||{}).map(([id,t])=>({id,...t})).sort((a,b)=>(a.disc+a.title).localeCompare(b.disc+b.title)); }
+async function tplSave(id,data){ st.tpl={...(st.tpl||{}),[id]:data}; const {error}=await sb.from("docs").upsert({user_id:st.uid,coll:"tpl",id,data,updated_at:new Date().toISOString()}); if(error) toast("No s'ha pogut guardar la plantilla."); }
+async function tplDel(id){ const t={...(st.tpl||{})}; delete t[id]; st.tpl=t; await sb.from("docs").delete().eq("user_id",st.uid).eq("coll","tpl").eq("id",id); }
+function sheetTplList(){
+  const L=tplList();
+  let h=sheetHead("Plantilles d'entrenos","Les pots fer servir a l'editor del dia");
+  h+=L.length?`<div class="stack" style="margin-top:10px">${L.map(t=>`<button class="sess" data-act="cTplEdit" data-id="${esc(t.id)}">${discIcon(t.disc,32)}<span class="t"><span class="t1">${esc(t.title||t.disc)}</span><span class="t2">${esc(t.disc)}${t.min?` · ${t.min}′`:""}${t.detail?" · "+esc(t.detail.slice(0,50)):""}</span></span><span class="mut">›</span></button>`).join("")}</div>`:`<div class="empty" style="margin-top:10px">Encara no n'hi ha cap.</div>`;
+  h+=`<button class="btn pri block" style="margin-top:12px" data-act="cTplEdit">+ Nova plantilla</button>`;
+  openSheet(h);
+}
+function sheetTplEdit(id){
+  const t=id?(st.tpl||{})[id]||{}:{disc:"Carrera"}; sheetState={kind:"tpl",id};
+  let h=sheetHead(id?"Editar plantilla":"Nova plantilla");
+  h+=`<div class="f2"><div class="field"><label for="t-disc">Disciplina</label><select class="in-t" id="t-disc">${DISC.map(d=>`<option ${t.disc===d?"selected":""}>${d}</option>`).join("")}</select></div><div class="field"><label for="t-min">Minuts</label><input class="in-t" id="t-min" type="number" inputmode="numeric" value="${t.min??""}" placeholder="50"></div></div>
+  <div class="field"><label for="t-title">Títol</label><input class="in-t" id="t-title" maxlength="60" value="${esc(t.title||"")}" placeholder="Rodatge Z2"></div>
+  <div class="field"><label for="t-det">Detall</label><textarea class="in-t" id="t-det" rows="4" maxlength="400" placeholder="15′ escalfament · 4×6′ a llindar…">${esc(t.detail||"")}</textarea></div>
+  <div class="err" id="t-err"></div><button class="btn pri block" data-act="cTplSave">Guardar</button>${id?`<button class="btn block" style="margin-top:8px;color:var(--red)" data-act="cTplDel">Eliminar</button>`:""}`;
+  openSheet(h);
+}
+async function tplSaveSheet(){
+  const g=i=>document.querySelector(i).value.trim(), title=g("#t-title"), err=document.querySelector("#t-err");
+  if(!title){ err.textContent="Posa un títol."; return; }
+  const id=sheetState.id||newId(); await tplSave(id,{disc:g("#t-disc"),title,detail:g("#t-det"),min:num(g("#t-min"))}); sheetTplList(); toast("Plantilla guardada");
+}
+function tplOptions(){ const L=tplList(); return L.length?`<option value="">⭐ Plantilla…</option>${L.map(t=>`<option value="${esc(t.id)}">${esc(t.disc)} · ${esc(t.title)}</option>`).join("")}`:""; }
+
+/* ---------- copiar setmana ---------- */
+function sheetCopy(){
+  const ws=st.cWeek||monday(todayStr());
+  let h=sheetHead("Copiar setmana",`${fmtShort(ws)} – ${fmtShort(addD(ws,6))} de ${esc(st.viewName)}`);
+  h+=`<div class="field"><label for="cp-ath">A quin atleta</label><select class="in-t" id="cp-ath">${st.athletes.map(a=>`<option value="${a.athlete_id}" ${a.athlete_id===st.viewUid?"selected":""}>${esc(athName(a))}</option>`).join("")}</select></div>
+  <div class="field"><label for="cp-wk">A quina setmana (dilluns)</label><input class="in-t" id="cp-wk" type="date" value="${addD(ws,7)}"></div>
+  <button type="button" class="toggle" style="width:100%" data-act="cCopyGoal"><span style="text-align:left"><b>Copiar també els objectius</b><span class="note" style="display:block;margin:0">Hores, km, RPE i text de la setmana</span></span><span class="sw on" id="cp-goal"><i></i></span></button>
+  <div class="err" id="cp-err"></div><button class="btn pri block" data-act="cCopyGo">Copiar</button>
+  <p class="note" style="margin-top:8px">Si la setmana de destí ja té entrenos aquells dies, se substitueixen.</p>`;
+  openSheet(h);
+}
+async function doCopy(){
+  const ws=st.cWeek||monday(todayStr()), to=document.querySelector("#cp-ath").value, wk=document.querySelector("#cp-wk").value, err=document.querySelector("#cp-err"), goal=document.querySelector("#cp-goal").classList.contains("on");
+  if(!isDate(wk)){ err.textContent="Tria la setmana."; return; }
+  const tw=monday(wk); if(tw===ws&&to===st.viewUid){ err.textContent="És la mateixa setmana."; return; }
+  const rows=[], now=new Date().toISOString();
+  for(let i=0;i<7;i++){ const src=st.dayplan[addD(ws,i)]; if(src) rows.push({user_id:to,coll:"dayplan",id:addD(tw,i),data:src,updated_at:now}); }
+  if(goal&&st.plan[ws]) rows.push({user_id:to,coll:"plan",id:tw,data:st.plan[ws],updated_at:now});
+  if(!rows.length){ err.textContent="Aquesta setmana no té res planificat."; return; }
+  const {error}=await sb.from("docs").upsert(rows);
+  if(error){ err.textContent="No s'ha pogut copiar."; return; }
+  closeSheet(); toast(`Copiada (${rows.length} dies/objectius)`);
+  if(to===st.viewUid){ try{ await loadAll(); }catch(e){} }
+  st.athData=null; loadAthData().then(render); render();
+}
+
+/* ---------- navegació ---------- */
+function coachTabs(){
+  const t=st.cview, tabs=[["panel","Panell",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>'],["plan","Planificar",TAB_ICONS.setmana],["anal","Anàlisi",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>'],["jo","Jo",TAB_ICONS.pla]];
+  document.getElementById("tabs").innerHTML=tabs.map(([k,l,ic])=>`<button class="tab ${t===k?"on":""}" data-act="cGo" data-v="${k}" ${t===k?'aria-current="page"':""}>${ic}<span>${l}</span></button>`).join("");
+}
+function renderCoach(app,banner){
+  const v=st.cview||"panel";
+  app.innerHTML=banner+(v==="panel"?vCoachPanel():v==="plan"?vCoachPlan():v==="anal"?vCoachAnal():vCoachJo());
+  coachTabs();
+  if(v==="anal") drawCoachCharts();
+}
+async function coachOpenAthlete(uid){ st.cview="athlete"; await viewAthlete(uid); }
+async function coachPlanAthlete(uid){ st.cview="plan"; if(st.viewUid!==uid){ const a=st.athletes.find(x=>x.athlete_id===uid); st.viewUid=uid; st.viewName=a?athName(a):""; st.mode="loading"; render(); try{ await loadAll(); }catch(e){} st.mode="db"; } st.cWeek=st.cWeek||monday(todayStr()); render(); window.scrollTo(0,0); }
 
 /* ---------------- UI helpers ---------------- */
 function toast(msg){ const h=document.getElementById("toastHost"); h.innerHTML=`<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t=setTimeout(()=>h.innerHTML="",2200); }
@@ -1019,8 +1241,9 @@ function render(){
   if (st.mode==="login"){ app.innerHTML=vLogin(); document.getElementById("tabs").innerHTML=""; return; }
   if (st.mode==="error"){ app.innerHTML=`<div class="empty" style="margin-top:40px">No s'ha pogut carregar l'app. Revisa la connexió i torna-ho a provar.</div>`; return; }
   else if (st.stale) banner=`<div class="banner">Encara no s'han pogut carregar totes les dades. El que veus pot no estar al dia.</div>`;
+  if (st.isCoach && st.cview!=="athlete"){ if(st.mode==="loading"&&st.cview!=="plan"){ coachTabs(); return; } renderCoach(app,banner); return; }
   if (st.mode==="loading"){ renderTabs(); return; }
-  if (st.viewUid) banner+=`<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Atleta: <b>${esc(st.viewName)}</b></span><button class="btn" style="padding:6px 12px" data-act="viewSelf">Tornar a mi</button></div>`;
+  if (st.viewUid) banner+=`<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Atleta: <b>${esc(st.viewName)}</b></span><button class="btn" style="padding:6px 12px" data-act="viewSelf">${st.isCoach?"← Panell":"Tornar a mi"}</button></div>`;
   const v = st.view;
   app.innerHTML = banner + (v==="avui"?vAvui():v==="setmana"?vSetmana():v==="grafics"?vGrafics():vPla());
   renderTabs();
@@ -1318,12 +1541,13 @@ function sheetDay(date){
   const ex=st.dayplan[date]||{}; const items=[...dayItems(date)]; while(items.length<4) items.push({disc:"",title:"",detail:"",min:null});
   sheetState={kind:"day",date};
   let h=sheetHead("Pla del dia", fmtLong(date));
-  items.forEach((t,i)=>{ h+=`<div class="card" style="margin-top:12px;padding:12px;background:var(--card)"><div class="f2"><div class="field" style="margin-top:0"><label for="d-disc-${i}">Sessió ${i+1}</label><select class="in-t" id="d-disc-${i}"><option value="">—</option>${DISC.map(x=>`<option ${t.disc===x?"selected":""}>${x}</option>`).join("")}</select></div><div class="field" style="margin-top:0"><label for="d-min-${i}">Minuts</label><input class="in-t" id="d-min-${i}" type="number" inputmode="numeric" min="0" max="900" value="${t.min??""}"></div></div>
+  const tO=st.isCoach?tplOptions():"";
+  items.forEach((t,i)=>{ h+=`<div class="card" style="margin-top:12px;padding:12px;background:var(--card)">${tO?`<div class="row" style="gap:6px;margin-bottom:8px"><select class="in-t" data-tpl="${i}" style="flex:1">${tO}</select><button type="button" class="btn ghost" style="padding:8px 10px;font-size:12px;flex:none" data-act="cTplFromDay" data-i="${i}" title="Desa com a plantilla">☆ Desa</button></div>`:st.isCoach?`<div style="text-align:right;margin-bottom:6px"><button type="button" class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="cTplFromDay" data-i="${i}">☆ Desa com a plantilla</button></div>`:""}<div class="f2"><div class="field" style="margin-top:0"><label for="d-disc-${i}">Sessió ${i+1}</label><select class="in-t" id="d-disc-${i}"><option value="">—</option>${DISC.map(x=>`<option ${t.disc===x?"selected":""}>${x}</option>`).join("")}</select></div><div class="field" style="margin-top:0"><label for="d-min-${i}">Minuts</label><input class="in-t" id="d-min-${i}" type="number" inputmode="numeric" min="0" max="900" value="${t.min??""}"></div></div>
     <div class="field"><label for="d-title-${i}">Títol</label><input class="in-t" id="d-title-${i}" maxlength="60" value="${esc(t.title||"")}" placeholder="Rodatge suau 10 km"></div>
     <div class="field"><label for="d-det-${i}">Detall</label><textarea class="in-t" id="d-det-${i}" rows="3" maxlength="400" placeholder="Escalfament, bloc principal, ritmes…">${esc(t.detail||"")}</textarea></div></div>`; });
   h+=`<div class="field"><label for="d-note">Nota del dia</label><input class="in-t" id="d-note" maxlength="120" value="${esc(ex.note||"")}" placeholder="Pista amb l'equip, descans…"></div>
   <div class="err" id="d-err"></div><button class="btn pri block" data-act="saveDay">Guardar</button>${st.dayplan[date]?delButton():""}`;
-  openSheet(h);
+  openSheet(h, root=>{ root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-det-",t.detail); set("d-min-",t.min); sel.value=""; })); });
 }
 function saveDay(){
   const root=document.querySelector(".sheet"), g=i=>root.querySelector("#"+i).value.trim(), err=root.querySelector("#d-err"), items=[];
@@ -1464,6 +1688,20 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "cGo": st.cview=el.dataset.v; if((st.cview==="panel"||st.cview==="anal")&&!st.athData) loadAthData().then(render); render(); window.scrollTo(0,0); break;
+    case "cRefresh": st.athData=null; render(); loadAthData().then(render); break;
+    case "cOpen": coachOpenAthlete(el.dataset.id); break;
+    case "cPlanAth": coachPlanAthlete(el.dataset.id); break;
+    case "cWk": st.cWeek=addD(st.cWeek||monday(todayStr()),Number(el.dataset.d)); render(); break;
+    case "cCopy": sheetCopy(); break;
+    case "cCopyGoal": document.querySelector("#cp-goal").classList.toggle("on"); break;
+    case "cCopyGo": doCopy(); break;
+    case "cTpl": sheetTplList(); break;
+    case "cTplEdit": sheetTplEdit(el.dataset.id||null); break;
+    case "cTplSave": tplSaveSheet(); break;
+    case "cTplDel": { const id=sheetState.id; tplDel(id).then(()=>{ sheetTplList(); toast("Plantilla eliminada"); }); break; }
+    case "cAthCfg": sheetAthlete(el.dataset.id); break;
+    case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } tplSave(newId(),{disc,title,detail:g("d-det-"),min:num(g("d-min-"))}); toast("Desada com a plantilla"); break; }
     case "editZones": if(st.viewUid){ toast("Els llindars els edita l'atleta des del seu compte."); break; } sheetZones(); break;
     case "saveZones": saveZones(); break;
     case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
@@ -1485,14 +1723,14 @@ document.addEventListener("click", e=>{
     case "cover": sheetPhoto("cover"); break;
     case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
-    case "viewSelf": viewAthlete(null); break;
+    case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
     case "copyCode": { const msg=`Hola! Per connectar-te a Càrrega Tri: entra a https://marcal2004.github.io/carrega-tri/ , crea't un compte i ves a Jo › Configuració › Entrenador. Codi: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
     case "coachLink": if(!st.myLink) sheetRedeem(); else toast("Ja estàs connectat amb el teu entrenador"); break;
     case "redeem": redeem(); break;
     case "athSettings": sheetAthlete(st.viewUid); break;
     case "saveAth": saveAth(); break;
-    case "unlinkAth": unlinkAth().then(()=>viewAthlete(null)); break;
+    case "unlinkAth": unlinkAth().then(()=>{ if(st.isCoach){ st.cview="jo"; st.viewUid=null; loadAthData().then(render); render(); } else viewAthlete(null); }); break;
     case "importJson": { const inp=document.createElement("input"); inp.type="file"; inp.accept="application/json,.json"; inp.onchange=()=>inp.files[0]&&importJson(inp.files[0]); inp.click(); break; }
     case "pendAll": st.pendAll=!st.pendAll; render(); break;
     case "pickDay": st.planDay=el.dataset.date; render(); break;

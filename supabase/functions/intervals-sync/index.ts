@@ -43,6 +43,9 @@ Deno.serve(async (req) => {
       const { data: links } = await sbU.from("coach_links").select("intervals_id").eq("athlete_id", user.id).not("intervals_id", "is", null).limit(1);
       ath = links && links[0] ? String(links[0].intervals_id) : "";
       if (ath) allowed.add(ath);
+      // Compte d'entrenador (sense dades pròpies): pot llegir els seus atletes
+      const { data: coached } = await sbU.from("coach_links").select("intervals_id").eq("coach_id", user.id).not("intervals_id", "is", null);
+      (coached || []).forEach((l: { intervals_id: string }) => allowed.add(String(l.intervals_id)));
     }
 
     const body = await req.json().catch(() => ({}));
