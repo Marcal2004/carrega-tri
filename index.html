@@ -265,15 +265,22 @@ function recovery(d){
   const rg=hrvRange(), a7=hrv7(d); let hp=null;
   if(rg && a7!=null){ hrvState = a7 < rg.lo-(rg.hi-rg.lo)/2 ? "Molt baixa" : a7 < rg.lo ? "Baixa" : "Normal"; hp=Math.max(0,Math.min(100,50+(a7-rg.lo)/(rg.hi-rg.lo)*50)); }
   const qState = total==null ? null : (total<=11 || Math.min(...q)===1) ? "Mala" : total<=15 ? "Parcial" : "Bona";
+  const rh=rhrOf(d), rb=rhrBase(d), rdf=(rh!=null&&rb!=null)?rh-rb:null;
+  const rhrState = rdf==null ? null : rdf>8 ? "Molt alta" : rdf>5 ? "Alta" : "Normal";
   let decision=null, color="var(--mut)";
-  if (hrvState||qState){
-    if (hrvState==="Molt baixa"||qState==="Mala"){ decision="Reduir o descansar"; color="var(--red)"; }
-    else if (hrvState==="Baixa"||qState==="Parcial"){ decision="Precaució"; color="var(--yellow)"; }
+  if (hrvState||qState||rhrState){
+    if (hrvState==="Molt baixa"||qState==="Mala"||rhrState==="Molt alta"){ decision="Reduir o descansar"; color="var(--red)"; }
+    else if (hrvState==="Baixa"||qState==="Parcial"||rhrState==="Alta"){ decision="Precaució"; color="var(--yellow)"; }
     else { decision="Entrena normal"; color="var(--green)"; }
   }
   let pct=null;
-  if (total!=null){ const qp=(total-4)/16*100; pct = hp!=null ? (qp+hp)/2 : dev==null ? qp : (qp + Math.max(0,Math.min(100,50+dev*500)))/2; pct=Math.round(pct); }
-  return {r,total,mean,dev,hrvState,qState,decision,color,pct,hp};
+  const comps=[];
+  if (total!=null) comps.push((total-4)/16*100);
+  if (hp!=null) comps.push(hp); else if (dev!=null) comps.push(Math.max(0,Math.min(100,50+dev*500)));
+  const rp = rdf==null ? null : Math.max(0,Math.min(100,70-rdf*7));
+  if (rp!=null) comps.push(rp);
+  if (total!=null && comps.length) pct=Math.round(comps.reduce((a,b)=>a+b,0)/comps.length);
+  return {r,total,mean,dev,hrvState,qState,rhrState,rdf,decision,color,pct,hp};
 }
 function macroFor(d){
   const list=macroList();
@@ -723,7 +730,7 @@ function sheetRecovery(d){
   const tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?"var(--green)": tq>=12?"var(--yellow)":"var(--red)";
   const rp=rec?.pct??(rec?.hp!=null?Math.round(rec.hp):null);
   let h=sheetHead("Recuperació", fmtLong(d));
-  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">Combina el qüestionari del matí i la VFC respecte al teu rang.</div></div></div>`;
+  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">Combina el qüestionari del matí, la VFC respecte al teu rang i la FC en repòs respecte a la teva mitjana.</div></div></div>`;
   h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">
     <div class="tile" style="padding:10px"><div class="lab">VFC</div><div class="val" style="font-size:26px;color:${vcol}">${hv??"–"}</div><div class="sub">${vb?`normal ${vb.lo}–${vb.hi}`:"ms"}</div><div class="sub" style="color:${vcol}">${vtxt}</div></div>
     <div class="tile" style="padding:10px"><div class="lab">FC repòs</div><div class="val" style="font-size:26px;color:${rhcol}">${rh??"–"}</div><div class="sub">${rb!=null?`mitjana ${Math.round(rb)}`:"ppm"}</div><div class="sub" style="color:${rhcol}">${rdf==null?(rh==null?"sense dades":""):rdf<=2?"normal":rdf<=5?`+${Math.round(rdf)} ppm`:`+${Math.round(rdf)} ppm alta`}</div></div>
