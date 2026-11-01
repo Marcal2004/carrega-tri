@@ -660,7 +660,7 @@ function vAvui(){
   let h=`<div class="photo main"><img src="${cover()}" alt="${prof().cover?"Foto de portada":"Ciclista amb el mallot groc de la Creu Groga sobre la bici"}" ${prof().cover?'style="object-position:50% 50%"':""}>${st.viewUid?"":`<button data-act="cover" aria-label="Canviar la foto d'Avui" style="position:absolute;top:12px;left:12px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>`}<span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isT?(prof().name?`Hola, ${esc(prof().name)}`:"Avui"):esc(DAYS_L[dow(d)].charAt(0).toUpperCase()+DAYS_L[dow(d)].slice(1))}</h1>${isT?"":`<button class="btn" style="margin-top:8px;padding:6px 12px;font-size:13px" data-act="goToday">← Tornar a avui</button>`}</div></div>`;
   if (needSetup) h+=`<div class="card" style="margin-bottom:12px"><div class="decision">Configura la temporada</div><p class="mut small" style="margin:6px 0 12px">Posa el teu nom, el dilluns d'inici i el pes objectiu. Els coeficients per disciplina ja vénen carregats.</p><button class="btn pri block" data-act="settings">Configurar</button></div>`;
   h+=vRings(d,rec,ac,z);
-  if(!rec?.total && !fut) h+=`<button class="card" data-act="morning" data-date="${d}" style="width:100%;margin-top:10px;display:flex;align-items:center;justify-content:space-between;text-align:left;border:1px dashed var(--brand)"><span><b>${isT?"Control del matí":"Qüestionari d'aquest dia"}</b><span class="small mut" style="display:block;margin-top:2px">${isT?"Son, bateria i 4 preguntes · 1 minut":"No es va fer. Pots afegir-lo ara."}</span></span><span class="btn pri" style="padding:8px 14px">Fer-lo</span></button>`;
+  if(!rec?.total && !fut) h+=`<button class="card" data-act="morning" data-date="${d}" style="width:100%;margin-top:10px;display:flex;align-items:center;justify-content:space-between;text-align:left;border:1px dashed var(--brand)"><span><b>${isT?"Control del matí":"Qüestionari d'aquest dia"}</b><span class="small mut" style="display:block;margin-top:2px">${isT?"Son, FC en repòs i 4 preguntes · 1 minut":"No es va fer. Pots afegir-lo ara."}</span></span><span class="btn pri" style="padding:8px 14px">Fer-lo</span></button>`;
   h+=vDayPlan();
   const pc = pl&&pl.load ? wr.load/pl.load : null;
   h+=`<div class="grid2" style="margin-top:10px">
@@ -712,18 +712,21 @@ function vRings(d,rec,ac,z){
     ${cell("acwrInfo", aw!=null?Math.min(1,aw/2):0, acol, aw!=null?aw.toFixed(2):"–", "", "ACWR", z?z[0]:"des del dia 21")}
   </div></div>`;
 }
+function rhrOf(d){ const q=st.daily[d]||{}; const v=q.rhr??q.garmin?.rhr??null; return v!=null&&isFinite(v)?Number(v):null; }
+function rhrBase(d){ const v=[]; for(let i=1;i<=7;i++){ const x=rhrOf(addD(d,-i)); if(x!=null) v.push(x); } return v.length>=3?v.reduce((a,b)=>a+b,0)/v.length:null; }
 function sheetRecovery(d){
   const rec=recovery(d), dd=st.daily[d]||{}, gg=dd.garmin||{};
   const vb=hrvBase(d), hv=(dd.hrv??gg.hrvG)!=null?Math.round(dd.hrv??gg.hrvG):null;
   const vcol = hv==null||!vb ? "var(--fg)" : hv<vb.lo ? (hv<vb.m-vb.sd?"var(--red)":"var(--yellow)") : hv>vb.hi ? "var(--blue)" : "var(--green)";
   const vtxt = hv==null ? "sense dades" : !vb ? "sense rang" : hv<vb.lo ? "per sota del rang" : hv>vb.hi ? "per sobre del rang" : "dins del rang";
-  const bb=dd.bb??gg.bbHigh??null, tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?"var(--green)": tq>=12?"var(--yellow)":"var(--red)";
+  const rh=rhrOf(d), rb=rhrBase(d), rdf=rh!=null&&rb!=null?rh-rb:null, rhcol=rdf==null?"var(--fg)":rdf<=2?"var(--green)":rdf<=5?"var(--yellow)":"var(--red)";
+  const tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?"var(--green)": tq>=12?"var(--yellow)":"var(--red)";
   const rp=rec?.pct??(rec?.hp!=null?Math.round(rec.hp):null);
   let h=sheetHead("Recuperació", fmtLong(d));
   h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">Combina el qüestionari del matí i la VFC respecte al teu rang.</div></div></div>`;
   h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">
     <div class="tile" style="padding:10px"><div class="lab">VFC</div><div class="val" style="font-size:26px;color:${vcol}">${hv??"–"}</div><div class="sub">${vb?`normal ${vb.lo}–${vb.hi}`:"ms"}</div><div class="sub" style="color:${vcol}">${vtxt}</div></div>
-    <div class="tile" style="padding:10px"><div class="lab">Bateria</div><div class="val" style="font-size:26px;color:${bb==null?"var(--fg)":bb>=70?"var(--green)":bb>=40?"var(--yellow)":"var(--red)"}">${bb??"–"}</div><div class="sub">${bb==null?"sense dades":"en llevar-te"}</div></div>
+    <div class="tile" style="padding:10px"><div class="lab">FC repòs</div><div class="val" style="font-size:26px;color:${rhcol}">${rh??"–"}</div><div class="sub">${rb!=null?`mitjana ${Math.round(rb)}`:"ppm"}</div><div class="sub" style="color:${rhcol}">${rdf==null?(rh==null?"sense dades":""):rdf<=2?"normal":rdf<=5?`+${Math.round(rdf)} ppm`:`+${Math.round(rdf)} ppm alta`}</div></div>
     <div class="tile" style="padding:10px"><div class="lab">Test</div><div class="val" style="font-size:26px;color:${tcol}">${tq??"–"}</div><div class="sub">${tq!=null?"/20":"no fet"}</div></div></div>`;
   if(tq!=null) h+=`<div class="card" style="margin-top:10px">${Q_ITEMS.map(([k,l])=>`<div class="kv"><span>${esc(l)}</span><b>${dd[k]??"–"}/5</b></div>`).join("")}</div>`;
   if(d<=todayStr()) h+=`<button class="btn pri block" style="margin-top:12px" data-act="morning" data-date="${d}">${tq!=null?"Editar qüestionari":"Fer el qüestionari"}</button>`;
@@ -997,7 +1000,7 @@ function drawCharts(){
   const acw=weeks.map(w=>acuteChronic(addD(w,6)<todayStr()?addD(w,6):todayStr(),tot).acwr);
   charts.push(new Chart(document.getElementById("c3"),{type:"bar",data:{labels,datasets:[{label:"ACWR",data:acw.map(x=>x==null?null:Math.round(x*100)/100),backgroundColor:acw.map(x=>{const z=acwrZone(x);return z?({"var(--red)":"#FF3B4E","var(--yellow)":"#FF9F1C","var(--green)":"#18D67A","var(--blue)":"#5B9BFF"})[z[1]]:"#24282E";}),borderRadius:4}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{...gridOpt,grid:{display:false}},y:{...gridOpt,beginAtZero:true,suggestedMax:1.6}}}}));
   const d28=[...Array(28)].map((_,i)=>addD(todayStr(),i-27)); const recs=d28.map(recovery);
-  charts.push(new Chart(document.getElementById("c4"),{data:{labels:d28.map(fmtShort),datasets:[{type:"bar",label:"Recuperació %",data:recs.map(r=>r?.pct??null),backgroundColor:recs.map(r=>r?({"var(--red)":"#FF3B4E","var(--yellow)":"#FF9F1C","var(--green)":"#18D67A"})[r.color]||"#24282E":"#24282E"),borderRadius:3,yAxisID:"y"},{type:"line",label:"Son",data:d28.map(d=>st.daily[d]?.sleepScore??st.daily[d]?.garmin?.sleepScore??null),borderColor:"#A18BFF",pointRadius:2,spanGaps:true,yAxisID:"y",tension:.3},{type:"line",label:"Body Battery",data:d28.map(d=>st.daily[d]?.bb??st.daily[d]?.garmin?.bbHigh??null),borderColor:"#18D67A",borderDash:[4,3],pointRadius:2,spanGaps:true,yAxisID:"y",tension:.3},{type:"line",label:"VFC (ms)",data:d28.map(d=>st.daily[d]?.hrv??null),borderColor:"#F2F4F5",pointRadius:2,spanGaps:true,yAxisID:"y1",tension:.3}]},options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{boxWidth:10,boxHeight:10}}},scales:{x:{...gridOpt,grid:{display:false},ticks:{color:"#8B939C",maxTicksLimit:7,maxRotation:0}},y:{...gridOpt,min:0,max:100,title:{display:true,text:"%",color:"#8B939C"}},y1:{position:"right",grid:{display:false},ticks:{color:"#8B939C"},title:{display:true,text:"ms",color:"#8B939C"}}}}}));
+  charts.push(new Chart(document.getElementById("c4"),{data:{labels:d28.map(fmtShort),datasets:[{type:"bar",label:"Recuperació %",data:recs.map(r=>r?.pct??null),backgroundColor:recs.map(r=>r?({"var(--red)":"#FF3B4E","var(--yellow)":"#FF9F1C","var(--green)":"#18D67A"})[r.color]||"#24282E":"#24282E"),borderRadius:3,yAxisID:"y"},{type:"line",label:"Son",data:d28.map(d=>st.daily[d]?.sleepScore??st.daily[d]?.garmin?.sleepScore??null),borderColor:"#A18BFF",pointRadius:2,spanGaps:true,yAxisID:"y",tension:.3},{type:"line",label:"FC repòs (ppm)",data:d28.map(d=>rhrOf(d)),borderColor:"#18D67A",borderDash:[4,3],pointRadius:2,spanGaps:true,yAxisID:"y",tension:.3},{type:"line",label:"VFC (ms)",data:d28.map(d=>st.daily[d]?.hrv??null),borderColor:"#F2F4F5",pointRadius:2,spanGaps:true,yAxisID:"y1",tension:.3}]},options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{boxWidth:10,boxHeight:10}}},scales:{x:{...gridOpt,grid:{display:false},ticks:{color:"#8B939C",maxTicksLimit:7,maxRotation:0}},y:{...gridOpt,min:0,max:100,title:{display:true,text:"%",color:"#8B939C"}},y1:{position:"right",grid:{display:false},ticks:{color:"#8B939C"},title:{display:true,text:"ms",color:"#8B939C"}}}}}));
   drawWeight("c5");
 }
 function drawTests(){
@@ -1039,7 +1042,7 @@ function sheetMorning(date){
   const gm=ex.garmin||{};
   h+=`<div class="field"><label for="m-date">Data</label><input class="in-t" id="m-date" type="date" value="${date}"></div>
   <div class="f2"><div class="field"><label for="m-sleep">1 · Puntuació de son</label><input class="in-t" id="m-sleep" type="number" inputmode="numeric" min="0" max="100" step="1" value="${ex.sleepScore??gm.sleepScore??""}" placeholder="0-100"></div>
-  <div class="field"><label for="m-bb">2 · Body Battery</label><input class="in-t" id="m-bb" type="number" inputmode="numeric" min="0" max="100" step="1" value="${ex.bb??gm.bbHigh??""}" placeholder="0-100"></div></div>
+  <div class="field"><label for="m-rhr">2 · FC en repòs (ppm)</label><input class="in-t" id="m-rhr" type="number" inputmode="numeric" min="25" max="120" step="1" value="${ex.rhr??gm.rhr??""}" placeholder="48"></div></div>
   <div class="note">Valors en llevar-te, de Garmin o Bevel. La VFC s'importa sola de Garmin${(ex.hrv??gm.hrvG)!=null?` (avui ${ex.hrv??gm.hrvG} ms)`:""}.</div>
   <div class="field"><label for="m-kg">3 · Pes (kg)</label><input class="in-t" id="m-kg" type="number" inputmode="decimal" step="0.1" min="30" max="250" value="${st.weights[date]?.kg??""}" placeholder="En dejú, després d'anar al lavabo"></div>`;
   for (const [k,l,lo,hi] of Q_ITEMS) h+=`<div class="field"><span class="flab">${l}</span>${pickRow(k,5,sheetState[k])}<div class="row between note" style="margin-top:2px"><span>1 · ${lo}</span><span>5 · ${hi}</span></div></div>`;
@@ -1049,16 +1052,16 @@ function sheetMorning(date){
 }
 function saveMorning(){
   const root=document.querySelector(".sheet"), hrv=null, err=root.querySelector("#m-err");
-  const sleepScore=num(root.querySelector("#m-sleep").value), bb=num(root.querySelector("#m-bb").value), kg=num(root.querySelector("#m-kg").value);
+  const sleepScore=num(root.querySelector("#m-sleep").value), rhr=num(root.querySelector("#m-rhr").value), kg=num(root.querySelector("#m-kg").value);
   if (kg!=null&&(kg<30||kg>250)){ err.textContent="Posa un pes entre 30 i 250 kg."; return; }
   const miss=Q_ITEMS.filter(([k])=>sheetState[k]==null).map(([,l])=>l);
   if (sleepScore!=null&&(sleepScore<0||sleepScore>100)){ err.textContent="La puntuació de son ha d'estar entre 0 i 100."; return; }
-  if (bb!=null&&(bb<0||bb>100)){ err.textContent="El Body Battery ha d'estar entre 0 i 100."; return; }
-  if (hrv==null && sleepScore==null && bb==null && kg==null && miss.length===4){ err.textContent="Omple almenys una dada."; return; }
+  if (rhr!=null&&(rhr<25||rhr>120)){ err.textContent="La FC en repòs ha d'estar entre 25 i 120 ppm."; return; }
+  if (hrv==null && sleepScore==null && rhr==null && kg==null && miss.length===4){ err.textContent="Omple almenys una dada."; return; }
   if (miss.length && miss.length<4){ err.textContent="Respon les 4 preguntes: falta "+miss.join(", ")+"."; return; }
   if (hrv!=null && (hrv<1||hrv>300)){ err.textContent="La VFC ha d'estar entre 1 i 300 ms."; return; }
   const d=sheetState.date, prevD=st.daily[d]||{};
-  const data={...prevD, hrv: prevD.hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, bb}; if(data.hrv!=null && !data.hrvSrc) data.hrvSrc="garmin"; for(const [k] of Q_ITEMS) data[k]=sheetState[k];
+  const data={...prevD, hrv: prevD.hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, rhr}; delete data.bb; if(data.hrv!=null && !data.hrvSrc) data.hrvSrc="garmin"; for(const [k] of Q_ITEMS) data[k]=sheetState[k];
   if (kg!=null && kg!==st.weights[d]?.kg) write("weights",d,{kg,note:st.weights[d]?.note||""}); closeSheet(); write("daily",d,data); toast("Control del matí guardat");
 }
 
@@ -1364,7 +1367,7 @@ async function exportXlsx(){
   const wb=XLSX.utils.book_new();
   const ses=sessList().sort((a,b)=>a.date<b.date?-1:1).map(s=>({Data:s.date,Setmana:weekNo(monday(s.date)),Disciplina:s.disc,Descripció:s.desc||"",Minuts:s.min,RPE:s.rpe,Brick:s.brick?"Sí":"",Metres:s.m??"",Km:s.km??"",Watts:s.w??"",FC:s.fc??"",Sèries:s.sets??"",Reps:s.reps??"",Kg:s.kg??"",sRPE:Math.round(rawOf(s)),Coeficient:coefOf(s),"sRPE ponderada":Math.round(loadOf(s))}));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ses.length?ses:[{Data:""}]),"Sessions");
-  const dly=Object.keys(st.daily).filter(isDate).sort().map(d=>{const r=recovery(d);return {Data:d,"Son (0-100)":st.daily[d].sleepScore??st.daily[d].garmin?.sleepScore??"","Body Battery":st.daily[d].bb??st.daily[d].garmin?.bbHigh??"",VFC:st.daily[d].hrv??"",Son:st.daily[d].sleep??"",Fatiga:st.daily[d].fatigue??"",Dolor:st.daily[d].soreness??"",Estrès:st.daily[d].stress??"","Total (4-20)":r?.total??"","Desviació VFC":r?.dev!=null?Math.round(r.dev*1000)/10+"%":"","Recuperació %":r?.pct??"",Decisió:r?.decision??""};});
+  const dly=Object.keys(st.daily).filter(isDate).sort().map(d=>{const r=recovery(d);return {Data:d,"Son (0-100)":st.daily[d].sleepScore??st.daily[d].garmin?.sleepScore??"","FC repòs":rhrOf(d)??"",VFC:st.daily[d].hrv??"",Son:st.daily[d].sleep??"",Fatiga:st.daily[d].fatigue??"",Dolor:st.daily[d].soreness??"",Estrès:st.daily[d].stress??"","Total (4-20)":r?.total??"","Desviació VFC":r?.dev!=null?Math.round(r.dev*1000)/10+"%":"","Recuperació %":r?.pct??"",Decisió:r?.decision??""};});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dly.length?dly:[{Data:""}]),"Control diari");
   const wts=Object.keys(st.weights).filter(isDate).sort().map(d=>({Data:d,"Pes (kg)":st.weights[d].kg,Notes:st.weights[d].note||""}));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(wts.length?wts:[{Data:""}]),"Pes");
