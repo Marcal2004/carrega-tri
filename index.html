@@ -273,7 +273,7 @@ function recovery(d){
   }
   let pct=null;
   if (total!=null){ const qp=(total-4)/16*100; pct = hp!=null ? (qp+hp)/2 : dev==null ? qp : (qp + Math.max(0,Math.min(100,50+dev*500)))/2; pct=Math.round(pct); }
-  return {r,total,mean,dev,hrvState,qState,decision,color,pct};
+  return {r,total,mean,dev,hrvState,qState,decision,color,pct,hp};
 }
 function macroFor(d){
   const list=macroList();
@@ -659,23 +659,13 @@ function vAvui(){
   const needSetup = st.profileLoaded && !st.profile;
   let h=`<div class="photo main"><img src="${cover()}" alt="${prof().cover?"Foto de portada":"Ciclista amb el mallot groc de la Creu Groga sobre la bici"}" ${prof().cover?'style="object-position:50% 50%"':""}>${st.viewUid?"":`<button data-act="cover" aria-label="Canviar la foto d'Avui" style="position:absolute;top:12px;left:12px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>`}<span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isT?(prof().name?`Hola, ${esc(prof().name)}`:"Avui"):esc(DAYS_L[dow(d)].charAt(0).toUpperCase()+DAYS_L[dow(d)].slice(1))}</h1>${isT?"":`<button class="btn" style="margin-top:8px;padding:6px 12px;font-size:13px" data-act="goToday">← Tornar a avui</button>`}</div></div>`;
   if (needSetup) h+=`<div class="card" style="margin-bottom:12px"><div class="decision">Configura la temporada</div><p class="mut small" style="margin:6px 0 12px">Posa el teu nom, el dilluns d'inici i el pes objectiu. Els coeficients per disciplina ja vénen carregats.</p><button class="btn pri block" data-act="settings">Configurar</button></div>`;
-  h+=garminBlock(d,rec);
+  h+=vRings(d,rec,ac,z);
+  if(!rec?.total && !fut) h+=`<button class="card" data-act="morning" data-date="${d}" style="width:100%;margin-top:10px;display:flex;align-items:center;justify-content:space-between;text-align:left;border:1px dashed var(--brand)"><span><b>${isT?"Control del matí":"Qüestionari d'aquest dia"}</b><span class="small mut" style="display:block;margin-top:2px">${isT?"Son, bateria i 4 preguntes · 1 minut":"No es va fer. Pots afegir-lo ara."}</span></span><span class="btn pri" style="padding:8px 14px">Fer-lo</span></button>`;
   h+=vDayPlan();
-  h+=`<div class="card" style="margin-top:10px"><div class="hero">${ring(rec?.pct??null, rec?.color||"var(--mut2)", "Recuperació")}<div>`;
-  if (rec && rec.decision){
-    h+=`<div class="decision" style="color:${rec.color}">${esc(rec.decision)}</div>
-    <div style="margin-top:8px"><div class="kv"><span>Qüestionari</span><b>${rec.total??"–"}/20</b></div>
-    <div class="kv"><span>VFC</span><b>${rec.r.hrv??"–"} ms${rec.dev!=null?` <span style="color:${rec.dev<-0.05?"var(--yellow)":"var(--mut)"}">(${rec.dev>0?"+":""}${Math.round(rec.dev*100)}%)</span>`:""}</b></div></div>
-    <button class="btn ghost" style="margin-top:8px;padding:8px 12px;font-size:13px" data-act="morning" data-date="${d}">Editar</button>`;
-  } else {
-    h+=`${fut?`<div class="decision mut">Dia futur</div><p class="mut small" style="margin:6px 0 0">Aquí veuràs la recuperació quan arribi el dia.</p>`:`<div class="decision mut">Sense dades ${isT?"d'avui":"d'aquest dia"}</div><p class="mut small" style="margin:6px 0 10px">${isT?"Fes el control del matí: son, bateria i 4 preguntes.":"No es va fer el qüestionari. Pots afegir-lo ara."}</p><button class="btn pri" data-act="morning" data-date="${d}">${isT?"Control del matí":"Afegir qüestionari"}</button>`}`;
-  }
-  h+=`</div></div></div>`;
   const pc = pl&&pl.load ? wr.load/pl.load : null;
-  h+=`<div class="grid3" style="margin-top:10px">
+  h+=`<div class="grid2" style="margin-top:10px">
     <div class="tile"><div class="lab">${isT?"Avui":esc(fmtShort(d))}</div><div class="val">${fmtN(tot[d]||0)}</div><div class="sub">UA ponderada</div></div>
-    <div class="tile"><div class="lab">Setmana</div><div class="val">${fmtN(wr.load)}</div><div class="sub">${pc!=null?`${Math.round(pc*100)}% de ${fmtN(pl.load)}`:"sense pla"}</div></div>
-    <div class="tile"><div class="lab">ACWR</div><div class="val" style="color:${z?z[1]:"var(--fg)"}">${ac.acwr!=null?ac.acwr.toFixed(2):"–"}</div><div class="sub">${z?z[0]:"des del dia 21"}</div></div></div>`;
+    <div class="tile"><div class="lab">Setmana</div><div class="val">${fmtN(wr.load)}</div><div class="sub">${pc!=null?`${Math.round(pc*100)}% de ${fmtN(pl.load)}`:"sense pla"}</div></div></div>`;
   h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">Sessions ${isT?"d'avui":"del dia"}</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="newSess" data-date="${d}">+ Afegir</button></div><div class="stack" style="margin-top:10px">`;
   h+= todays.length ? todays.map(sessRow).join("") : `<div class="empty">${isT?"Encara no has registrat cap sessió avui. Toca el <b>+</b> de baix per afegir-ne una.":fut?"Dia futur.":"No hi ha cap sessió registrada aquest dia."}</div>`;
   h+=`</div>`;
@@ -705,6 +695,55 @@ function hrvBase(d){
   const m=v.reduce((a,b)=>a+b,0)/v.length, sd=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/(v.length-1));
   const half=Math.max(sd*0.5, m*0.03);
   return {m, sd:Math.max(sd,m*0.05), lo:Math.round(m-half), hi:Math.round(m+half), n:v.length};
+}
+function ringSvg(frac,color,size){
+  const R=42, C=2*Math.PI*R, f=Math.max(0,Math.min(1,frac||0));
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" style="transform:rotate(-90deg);display:block" aria-hidden="true"><circle cx="50" cy="50" r="${R}" fill="none" stroke="var(--card2)" stroke-width="7"/><circle cx="50" cy="50" r="${R}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(C*f).toFixed(1)} ${C.toFixed(1)}"/></svg>`;
+}
+function vRings(d,rec,ac,z){
+  const dd=st.daily[d]||{}, gg=dd.garmin||{};
+  const sl=dd.sleepScore??gg.sleepScore??null, slH=gg.sleepH??null;
+  const rp=rec?.pct??(rec?.hp!=null?Math.round(rec.hp):null), rcol=rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)";
+  const aw=ac?.acwr??null, acol=z?z[1]:"var(--mut2)";
+  const cell=(act,frac,col,val,unit,lab,sub)=>`<button data-act="${act}" data-date="${d}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;padding:0;color:var(--fg);cursor:pointer;min-width:0"><span style="position:relative;width:100%;max-width:108px;aspect-ratio:1">${ringSvg(frac,col,"100%")}<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><span class="num" style="font-family:var(--disp);font-weight:700;font-size:28px;line-height:1">${val}<span style="font-size:14px">${unit}</span></span></span></span><span style="font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">${lab} ›</span><span class="small mut" style="margin-top:-4px;text-align:center">${sub}</span></button>`;
+  return `<div class="card" style="margin-top:10px;padding:16px 10px 12px"><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+    ${cell("sleepInfo", sl!=null?sl/100:0, "#8FB3D9", sl??"–", sl!=null?"%":"", "Son", slH!=null?r1(slH)+" h":"sense dades")}
+    ${cell("recInfo", rp!=null?rp/100:0, rcol, rp??"–", rp!=null?"%":"", "Recuperació", rec?.decision?esc(rec.decision):(d>todayStr()?"–":"fes el test"))}
+    ${cell("acwrInfo", aw!=null?Math.min(1,aw/2):0, acol, aw!=null?aw.toFixed(2):"–", "", "ACWR", z?z[0]:"des del dia 21")}
+  </div></div>`;
+}
+function sheetRecovery(d){
+  const rec=recovery(d), dd=st.daily[d]||{}, gg=dd.garmin||{};
+  const vb=hrvBase(d), hv=(dd.hrv??gg.hrvG)!=null?Math.round(dd.hrv??gg.hrvG):null;
+  const vcol = hv==null||!vb ? "var(--fg)" : hv<vb.lo ? (hv<vb.m-vb.sd?"var(--red)":"var(--yellow)") : hv>vb.hi ? "var(--blue)" : "var(--green)";
+  const vtxt = hv==null ? "sense dades" : !vb ? "sense rang" : hv<vb.lo ? "per sota del rang" : hv>vb.hi ? "per sobre del rang" : "dins del rang";
+  const bb=dd.bb??gg.bbHigh??null, tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?"var(--green)": tq>=12?"var(--yellow)":"var(--red)";
+  const rp=rec?.pct??(rec?.hp!=null?Math.round(rec.hp):null);
+  let h=sheetHead("Recuperació", fmtLong(d));
+  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">Combina el qüestionari del matí i la VFC respecte al teu rang.</div></div></div>`;
+  h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">
+    <div class="tile" style="padding:10px"><div class="lab">VFC</div><div class="val" style="font-size:26px;color:${vcol}">${hv??"–"}</div><div class="sub">${vb?`normal ${vb.lo}–${vb.hi}`:"ms"}</div><div class="sub" style="color:${vcol}">${vtxt}</div></div>
+    <div class="tile" style="padding:10px"><div class="lab">Bateria</div><div class="val" style="font-size:26px;color:${bb==null?"var(--fg)":bb>=70?"var(--green)":bb>=40?"var(--yellow)":"var(--red)"}">${bb??"–"}</div><div class="sub">${bb==null?"sense dades":"en llevar-te"}</div></div>
+    <div class="tile" style="padding:10px"><div class="lab">Test</div><div class="val" style="font-size:26px;color:${tcol}">${tq??"–"}</div><div class="sub">${tq!=null?"/20":"no fet"}</div></div></div>`;
+  if(tq!=null) h+=`<div class="card" style="margin-top:10px">${Q_ITEMS.map(([k,l])=>`<div class="kv"><span>${esc(l)}</span><b>${dd[k]??"–"}/5</b></div>`).join("")}</div>`;
+  if(d<=todayStr()) h+=`<button class="btn pri block" style="margin-top:12px" data-act="morning" data-date="${d}">${tq!=null?"Editar qüestionari":"Fer el qüestionari"}</button>`;
+  openSheet(h);
+}
+function sheetSleep(d){
+  const dd=st.daily[d]||{}, gg=dd.garmin||{}, sl=dd.sleepScore??gg.sleepScore??null;
+  let h=sheetHead("Son", fmtLong(d));
+  h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px"><div class="tile" style="padding:10px"><div class="lab">Puntuació</div><div class="val" style="font-size:26px">${sl??"–"}</div><div class="sub">/100</div></div><div class="tile" style="padding:10px"><div class="lab">Hores</div><div class="val" style="font-size:26px">${gg.sleepH!=null?r1(gg.sleepH):"–"}</div><div class="sub">h</div></div><div class="tile" style="padding:10px"><div class="lab">FC repòs</div><div class="val" style="font-size:26px">${gg.rhr??"–"}</div><div class="sub">ppm</div></div></div>`;
+  const days=[...Array(7)].map((_,i)=>addD(d,i-6)), vals=days.map(x=>{ const q=st.daily[x]||{}; return q.sleepScore??q.garmin?.sleepScore??null; });
+  h+=`<h2>Últims 7 dies</h2><div class="card"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:end;height:100px">${vals.map((v,i)=>`<div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end"><span class="small num mut">${v??""}</span><div style="width:100%;max-width:22px;height:${v?Math.max(4,v*0.6):3}px;border-radius:4px;background:${v?"#8FB3D9":"var(--card2)"}"></div><span class="small mut">${DAYS[dow(days[i])]}</span></div>`).join("")}</div></div>`;
+  openSheet(h);
+}
+function sheetAcwr(d){
+  const {tot}=dayMaps(), ac=acuteChronic(d,tot), z=acwrZone(ac.acwr);
+  let h=sheetHead("ACWR", fmtLong(d));
+  h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px"><div class="tile" style="padding:10px"><div class="lab">ACWR</div><div class="val" style="font-size:26px;color:${z?z[1]:"var(--fg)"}">${ac.acwr!=null?ac.acwr.toFixed(2):"–"}</div><div class="sub">${z?z[0]:"des del dia 21"}</div></div><div class="tile" style="padding:10px"><div class="lab">Aguda 7 d</div><div class="val" style="font-size:26px">${fmtN(ac.a)}</div><div class="sub">UA</div></div><div class="tile" style="padding:10px"><div class="lab">Crònica</div><div class="val" style="font-size:26px">${fmtN(ac.c)}</div><div class="sub">UA / setm.</div></div></div>
+  <div class="card" style="margin-top:10px"><div class="kv"><span style="color:var(--blue)">● Baixa</span><b>&lt; 0,8</b></div><div class="kv"><span style="color:var(--green)">● Òptima</span><b>0,8 – 1,3</b></div><div class="kv"><span style="color:var(--yellow)">● Vigilar</span><b>1,3 – 1,5</b></div><div class="kv"><span style="color:var(--red)">● Pic brusc</span><b>&gt; 1,5</b></div></div>
+  <p class="note" style="margin-top:8px">Relació entre la càrrega dels últims 7 dies i la mitjana de les últimes 3 setmanes. Necessita 21 dies de dades.</p>`;
+  openSheet(h);
 }
 function garminBlock(d,rec){
   const dd=st.daily[d]||{}, gg=dd.garmin||{};
@@ -1367,6 +1406,9 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
+    case "sleepInfo": sheetSleep(el.dataset.date||todayStr()); break;
+    case "acwrInfo": sheetAcwr(el.dataset.date||todayStr()); break;
     case "grTab": st.grTab=el.dataset.t; render(); window.scrollTo(0,0); break;
     case "calM": { const [Y,M]=(st.calMonth||todayStr().slice(0,7)).split("-").map(Number); const d=new Date(Date.UTC(Y,M-1+Number(el.dataset.d),1)); st.calMonth=`${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}`; render(); break; }
     case "calDay": st.planDay=el.dataset.date; st.view="avui"; render(); window.scrollTo(0,0); break;
