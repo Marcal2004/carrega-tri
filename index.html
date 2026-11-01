@@ -353,7 +353,7 @@ async function startSession(session){
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
   await loadCoach();
-  if(st.isCoach){ st.cview="panel"; render(); loadTpl(); loadNotes().then(render); loadAthData().then(render); return; }
+  if(st.isCoach){ st.cview="panel"; render(); loadTpl(); loadNotes().then(render); loadAthData().then(()=>{ render(); refreshCoach(false); }); return; }
   render(); loadPush().then(render); syncGarmin(false);
   if(/[?&]morning=1/.test(location.search)){ history.replaceState(null,"",location.pathname); if(!st.viewUid) sheetMorning(todayStr()); }
 }
@@ -651,6 +651,17 @@ function userLabel(e){ e=String(e||""); return e.endsWith("@"+USER_DOMAIN) ? e.s
 const ATH_COLS=["sessions","daily","weights","macros","plan","tests","dayplan","races"];
 const athColor=i=>["#FFD60A","#4DA3FF","#FF453A","#3DDC84","#BF5AF2","#FF9F0A","#64D2FF","#FF6482"][i%8];
 
+async function syncAthletes(){
+  const L=st.athletes.filter(a=>a.intervals_id); if(!L.length) return 0;
+  st.cSync="sync"; render();
+  const res=await Promise.allSettled(L.map(a=>sb.functions.invoke("intervals-sync",{body:{action:"store",uid:a.athlete_id}})));
+  let added=0, fails=0; res.forEach(r=>{ if(r.status==="fulfilled"&&!r.value.error) added+=r.value.data?.added||0; else fails++; });
+  st.cSync=fails?"error":"ok"; st.cSyncAt=new Date(); return added;
+}
+async function refreshCoach(manual){
+  const n=await syncAthletes(); await loadAthData(); render();
+  if(manual) toast(st.cSync==="error"?"Algunes dades de Garmin no s'han pogut actualitzar":n?`${n} activitat${n>1?"s":""} nova${n>1?"s":""}`:"Tot al dia");
+}
 async function loadAthData(){
   const ids=st.athletes.map(a=>a.athlete_id); const out={};
   ids.forEach(id=>{ out[id]={profile:{}}; ATH_COLS.forEach(c=>out[id][c]={}); });
@@ -706,7 +717,7 @@ function athSummary(uid){
 function coachHead(eyebrow,title,right=""){ return `<div class="top"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1></div>${right}</div>`; }
 function vCoachPanel(){
   const A=st.athletes;
-  let h=coachHead("Entrenador", "Panell", `<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cRefresh">↻ Actualitzar</button>`);
+  let h=coachHead("Entrenador", "Panell", `<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cRefresh">${st.cSync==="sync"?"Actualitzant…":"↻ Actualitzar"}</button>`);
   if(!A.length) return h+`<div class="empty" style="margin-top:14px">Encara no tens atletes. Ves a <b>Jo › Convidar atleta</b> per generar un codi.</div>`;
   if(!st.athData) return h+`<div class="empty" style="margin-top:14px">Carregant atletes…</div>`;
   const grs=[...new Set(A.map(a=>(st.anote||{})[a.athlete_id]?.group).filter(Boolean))].sort(), gf=st.panelG&&grs.includes(st.panelG)?st.panelG:null;
@@ -984,7 +995,7 @@ function renderCoach(app,banner){
   coachTabs();
   if(v==="anal") drawCoachCharts();
 }
-async function coachOpenAthlete(uid){ st.cview="athlete"; await viewAthlete(uid); }
+async function coachOpenAthlete(uid){ st.cview="athlete"; const a=st.athletes.find(x=>x.athlete_id===uid); if(a?.intervals_id){ st.mode="loading"; render(); try{ await sb.functions.invoke("intervals-sync",{body:{action:"store",uid}}); }catch(e){} } await viewAthlete(uid); }
 async function coachPlanAthlete(uid){ st.cview="plan"; if(st.viewUid!==uid){ const a=st.athletes.find(x=>x.athlete_id===uid); st.viewUid=uid; st.viewName=a?athName(a):""; st.mode="loading"; render(); try{ await loadAll(); }catch(e){} st.mode="db"; } st.cWeek=st.cWeek||monday(todayStr()); render(); window.scrollTo(0,0); }
 
 /* ---------------- UI helpers ---------------- */
@@ -1820,7 +1831,7 @@ document.addEventListener("click", e=>{
     case "chPass": openSheet(sheetHead("Canviar contrasenya",userLabel(st.email||""))+`<div class="field"><label for="np1">Contrasenya nova</label><input class="in-t" id="np1" type="password" autocomplete="new-password" minlength="6"></div><div class="field"><label for="np2">Repeteix-la</label><input class="in-t" id="np2" type="password" autocomplete="new-password" minlength="6"></div><div class="err" id="np-err"></div><button class="btn pri block" data-act="chPassGo">Guardar</button>`); break;
     case "chPassGo": { const a=document.querySelector("#np1").value, b=document.querySelector("#np2").value, e=document.querySelector("#np-err"); if(a.length<6){ e.textContent="Mínim 6 caràcters."; break; } if(a!==b){ e.textContent="No coincideixen."; break; } sb.auth.updateUser({password:a}).then(({error})=>{ if(error){ e.textContent="No s'ha pogut canviar. Torna-ho a provar."; } else { closeSheet(); toast("Contrasenya canviada"); } }); break; }
     case "cGo": st.cview=el.dataset.v; if((st.cview==="panel"||st.cview==="anal")&&!st.athData) loadAthData().then(render); render(); window.scrollTo(0,0); break;
-    case "cRefresh": st.athData=null; render(); loadAthData().then(render); break;
+    case "cRefresh": refreshCoach(true); break;
     case "cOpen": coachOpenAthlete(el.dataset.id); break;
     case "cPlanAth": coachPlanAthlete(el.dataset.id); break;
     case "cWk": st.cWeek=addD(st.cWeek||monday(todayStr()),Number(el.dataset.d)); render(); break;

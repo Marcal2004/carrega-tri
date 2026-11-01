@@ -6,7 +6,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (b: unknown, s = 200) =>
@@ -18,6 +18,20 @@ const ACT_KEYS = ["id", "external_id", "start_date_local", "start_date", "type",
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
+    const body = await req.json().catch(() => ({}));
+    const key0 = Deno.env.get("INTERVALS_API_KEY") || Deno.env.get("Intervals_api_key") || "";
+
+    // Sincronització diària de tots els atletes (pg_cron)
+    if (body.action === "storeAll") {
+      const secret = Deno.env.get("CRON_SECRET");
+      if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "forbidden" }, 403);
+      const { data: links } = await admin().from("coach_links").select("athlete_id,intervals_id").not("intervals_id", "is", null);
+      const seen = new Set<string>(), out: Record<string, unknown> = {};
+      for (const l of links || []) { if (seen.has(l.athlete_id)) continue; seen.add(l.athlete_id);
+        try { out[l.athlete_id] = await storeFor(l.athlete_id, String(l.intervals_id), key0); } catch (e) { out[l.athlete_id] = String((e as Error).message); } }
+      return json({ ok: true, out });
+    }
+
     const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     const anon = Deno.env.get("SUPABASE_ANON_KEY") || req.headers.get("apikey") || "";
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, anon);
@@ -48,7 +62,22 @@ Deno.serve(async (req) => {
       (coached || []).forEach((l: { intervals_id: string }) => allowed.add(String(l.intervals_id)));
     }
 
-    const body = await req.json().catch(() => ({}));
+    // Guardar a la base de dades (des del servidor) les dades d'un atleta: ell mateix o el seu entrenador
+    if (body.action === "store") {
+      const uid = typeof body.uid === "string" && body.uid ? body.uid : user.id;
+      const A = admin();
+      if (uid !== user.id) {
+        const { data: ok } = await A.from("coach_links").select("athlete_id").eq("coach_id", user.id).eq("athlete_id", uid).maybeSingle();
+        if (!ok) return json({ error: "forbidden" }, 403);
+      }
+      let iid = "";
+      const { data: ln } = await A.from("coach_links").select("intervals_id").eq("athlete_id", uid).not("intervals_id", "is", null).limit(1);
+      if (ln && ln[0]) iid = String(ln[0].intervals_id);
+      if (!iid && uid === user.id && isOwner) iid = Deno.env.get("INTERVALS_ATHLETE_ID") || "";
+      if (!/^i\d+$/.test(iid)) return json({ error: "nolink" }, 403);
+      return json(await storeFor(uid, iid, key));
+    }
+
     if (typeof body.ath === "string" && body.ath) {
       if (!allowed.has(body.ath)) return json({ error: "forbidden" }, 403);
       ath = body.ath;
@@ -128,4 +157,62 @@ async function detail(body: Record<string, unknown>, get: Get, getAbs: Get) {
     }
   }
   return out;
+}
+
+// ---------- guardar des del servidor ----------
+const admin = () => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+const madridToday = () => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map((x) => [x.type, x.value])); return `${p.year}-${p.month}-${p.day}`; };
+const addDays = (d: string, n: number) => new Date(Date.parse(d + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+const nnum = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : null);
+function mapType(t: unknown) { const u = String(t || "").toUpperCase(); if (/SWIM/.test(u)) return "Natació"; if (/RUN|TREADMILL|TRAIL/.test(u)) return "Carrera"; if (/BIK|CYCL|RIDE|SPIN|GRAVEL/.test(u)) return "Ciclisme"; if (/STRENGTH|WEIGHT|GYM|HIIT/.test(u)) return "Força"; return null; }
+
+async function storeFor(uid: string, iid: string, key: string) {
+  if (!key) throw new Error("nokey");
+  const A = admin(), auth = "Basic " + btoa("API_KEY:" + key);
+  const get = async (p: string) => { const r = await fetch(`https://intervals.icu/api/v1/athlete/${iid}/${p}`, { headers: { Authorization: auth } }); if (!r.ok) throw new Error(`intervals ${r.status}`); return r.json(); };
+  const today = madridToday(), oldest = addDays(today, -14), q = `oldest=${oldest}&newest=${today}`;
+  const [acts, well] = await Promise.all([get(`activities?${q}`), get(`wellness?${q}`)]);
+  const { data: rows } = await A.from("docs").select("coll,id,data").eq("user_id", uid).in("coll", ["sessions", "daily", "weights", "profile"]);
+  const S: Record<string, any> = {}, D: Record<string, any> = {}, W: Record<string, any> = {}; let prof: any = {};
+  for (const r of rows || []) { if (r.coll === "sessions") S[r.id] = r.data; else if (r.coll === "daily") D[r.id] = r.data; else if (r.coll === "weights") W[r.id] = r.data; else prof = r.data || {}; }
+  const ignored = new Set<string>(Array.isArray(prof.garminIgnored) ? prof.garminIgnored : []);
+  const sessList = Object.values(S);
+  const up: any[] = [], now = new Date().toISOString();
+  const list = (Array.isArray(acts) ? acts : []).map((a: any) => ({ ...a, disc: mapType(a.type), gid: String(a.external_id || a.id || ""), t0: Date.parse(a.start_date || a.start_date_local), sec: a.moving_time || a.elapsed_time || 0 }))
+    .filter((a: any) => a.gid && a.start_date_local).sort((a: any, b: any) => a.t0 - b.t0);
+  let added = 0;
+  for (const a of list) {
+    if (!a.disc) continue;
+    const id = "g-" + a.gid.replace(/[^A-Za-z0-9_-]/g, "");
+    if (S[id] || ignored.has(a.gid)) continue;
+    const date = String(a.start_date_local).slice(0, 10), min = Math.max(1, Math.round(a.sec / 60));
+    const dup = sessList.some((s: any) => s.date === date && s.disc === a.disc && s.min && Math.abs(s.min - min) / Math.max(s.min, min) < 0.08);
+    if (dup) continue;
+    const s: any = { date, disc: a.disc, min, rpe: null, pending: true, source: "garmin", gid: a.gid, iid: String(a.id), start: a.start_date || a.start_date_local, desc: a.name || a.disc, brick: false };
+    if (a.disc === "Natació" && a.distance) s.m = Math.round(a.distance);
+    if ((a.disc === "Ciclisme" || a.disc === "Carrera") && a.distance) s.km = Math.round(a.distance / 100) / 10;
+    if (a.average_heartrate && a.disc !== "Natació") s.fc = Math.round(a.average_heartrate);
+    if (a.disc === "Ciclisme" && a.icu_average_watts) s.w = Math.round(a.icu_average_watts);
+    if (a.disc === "Carrera") s.brick = list.some((b: any) => b.disc === "Ciclisme" && Math.abs(a.t0 - (b.t0 + (b.elapsed_time || b.sec) * 1000)) < 20 * 60000);
+    S[id] = s; sessList.push(s); up.push({ user_id: uid, coll: "sessions", id, data: s, updated_at: now }); added++;
+  }
+  let wn = 0;
+  for (const r of Array.isArray(well) ? well : []) {
+    const d = String(r.id || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    const g: any = {};
+    let hv = nnum(r.hrv); if (hv == null) for (const [k, v] of Object.entries(r)) if (/hrv|rmssd/i.test(k) && !/sdnn/i.test(k) && nnum(v) != null) { hv = v as number; break; }
+    if (hv != null) g.hrvG = Math.round(hv);
+    if (nnum(r.sleepScore) != null) g.sleepScore = Math.round(r.sleepScore);
+    if (nnum(r.sleepSecs) != null) g.sleepH = Math.round(r.sleepSecs / 360) / 10;
+    if (nnum(r.restingHR) != null) g.rhr = r.restingHR;
+    if (Object.keys(g).length) {
+      const ex = D[d] || {}, cur = ex.garmin || {};
+      const nd: any = { ...ex, garmin: { ...cur, ...g } };
+      if (g.hrvG != null && (ex.hrv == null || ex.hrvSrc === "garmin")) { nd.hrv = g.hrvG; nd.hrvSrc = "garmin"; }
+      if (JSON.stringify(nd) !== JSON.stringify(ex)) { up.push({ user_id: uid, coll: "daily", id: d, data: nd, updated_at: now }); wn++; }
+    }
+    if (nnum(r.weight) != null && !W[d]) up.push({ user_id: uid, coll: "weights", id: d, data: { kg: Math.round(r.weight * 10) / 10, note: "Garmin" }, updated_at: now });
+  }
+  for (let i = 0; i < up.length; i += 200) { const { error } = await A.from("docs").upsert(up.slice(i, i + 200)); if (error) throw new Error(error.message); }
+  return { added, wellness: wn };
 }
