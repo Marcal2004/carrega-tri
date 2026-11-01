@@ -510,7 +510,7 @@ async function syncGarmin(manual){
       // ja existeix una sessió igual (p. ex. importada abans des de Claude)?
       const dup=sessList().some(s=>s.date===date && s.disc===a.disc && s.min && Math.abs(s.min-min)/Math.max(s.min,min)<0.08 && (!(s.km&&a.distance)||Math.abs(s.km*1000-a.distance)/a.distance<0.05) && (!(s.m&&a.distance)||Math.abs(s.m-a.distance)/a.distance<0.05));
       if(dup) continue;
-      const s={date,disc:a.disc,min,rpe:null,pending:true,source:"garmin",gid:a.gid,start:a.start_date||a.start_date_local,desc:a.name||a.disc,brick:false};
+      const s={date,disc:a.disc,min,rpe:null,pending:true,source:"garmin",gid:a.gid,iid:a.id?String(a.id):undefined,start:a.start_date||a.start_date_local,desc:a.name||a.disc,brick:false};
       if(a.disc==="Natació" && a.distance) s.m=Math.round(a.distance);
       if((a.disc==="Ciclisme"||a.disc==="Carrera") && a.distance) s.km=Math.round(a.distance/100)/10;
       if(a.average_heartrate && a.disc!=="Natació") s.fc=Math.round(a.average_heartrate);
@@ -541,6 +541,92 @@ async function syncGarmin(manual){
     st.garmin={...st.garmin,state:"error",msg:e.message||"Error de sincronització"};
     if(manual) toast(st.garmin.msg);
   }finally{ syncing=false; schedule(); }
+}
+
+/* ---------------- detall d'activitat ---------------- */
+const detCache={}; let detCharts=[];
+let leafletP=null;
+function loadLeaflet(){
+  if(window.L) return Promise.resolve();
+  if(leafletP) return leafletP;
+  leafletP=new Promise((res,rej)=>{ const l=document.createElement("link"); l.rel="stylesheet"; l.href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(l);
+    const sc=document.createElement("script"); sc.src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"; sc.onload=res; sc.onerror=()=>{ leafletP=null; rej(); }; document.head.appendChild(sc); });
+  return leafletP;
+}
+const ZCOL=["#8B939C","#4DA3FF","#3DDC84","#FFD60A","#FF9F0A","#FF453A","#BF5AF2"];
+const paceStr=(v,per=1000)=>{ if(!v||v<=0) return "–"; const sec=per/v; return `${Math.floor(sec/60)}:${pad(Math.round(sec%60)%60)}`; };
+function detTiles(a,disc){
+  const t=[], add=(l,v,u)=>{ if(v!=null&&v!=="–") t.push(`<div class="tile" style="padding:10px"><div class="lab">${l}</div><div class="val" style="font-size:22px">${v}</div><div class="sub">${u||""}</div></div>`); };
+  if(a.distance) add("Distància", disc==="Natació"?fmtN(a.distance):r1(a.distance/1000).toFixed(2), disc==="Natació"?"m":"km");
+  if(a.moving_time) add("Temps", fmtTime(a.moving_time), a.elapsed_time&&a.elapsed_time-a.moving_time>60?`total ${fmtTime(a.elapsed_time)}`:"en moviment");
+  if(a.average_speed){ if(disc==="Carrera") add("Ritme", paceStr(a.average_speed), "/km"); else if(disc==="Natació") add("Ritme", paceStr(a.average_speed,100), "/100 m"); else add("Velocitat", r1(a.average_speed*3.6), `km/h · màx ${r1((a.max_speed||0)*3.6)}`); }
+  if(a.average_heartrate) add("FC mitjana", Math.round(a.average_heartrate), a.max_heartrate?`màx ${Math.round(a.max_heartrate)} ppm`:"ppm");
+  if(a.icu_average_watts) add("Potència", Math.round(a.icu_average_watts), a.icu_weighted_avg_watts?`NP ${Math.round(a.icu_weighted_avg_watts)} W`:"W");
+  if(a.total_elevation_gain) add("Desnivell", fmtN(a.total_elevation_gain), "m +");
+  if(a.average_cadence) add("Cadència", Math.round(disc==="Carrera"&&a.average_cadence<120?a.average_cadence*2:a.average_cadence), disc==="Ciclisme"?"rpm":disc==="Carrera"?"ppm":"");
+  if(a.calories) add("Calories", fmtN(a.calories), "kcal");
+  if(a.icu_training_load) add("Càrrega", Math.round(a.icu_training_load), "intervals");
+  return `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px">${t.join("")}</div>`;
+}
+function detZones(times,bounds,title,fmtB){
+  if(!Array.isArray(times)||!times.length) return "";
+  const tot=times.reduce((a,b)=>a+(b||0),0); if(!tot) return "";
+  let h=`<h2 style="margin-top:18px">${title}</h2><div class="card">`;
+  times.forEach((sec,i)=>{ const pc=(sec||0)/tot*100, lo=i===0?null:bounds?.[i-1], hi=bounds?.[i];
+    const rng=bounds?(i===0?`< ${fmtB(hi)}`:hi!=null&&i<times.length-1?`${fmtB(lo)}–${fmtB(hi)}`:`> ${fmtB(lo)}`):"";
+    h+=`<div style="display:grid;grid-template-columns:34px 1fr 92px;gap:8px;align-items:center;margin:6px 0"><b style="color:${ZCOL[i%ZCOL.length]}">Z${i+1}</b><div><div class="bar" style="margin:0"><i style="width:${pc}%;background:${ZCOL[i%ZCOL.length]}"></i></div><div class="small mut" style="margin-top:2px">${rng}</div></div><span class="num small" style="text-align:right">${fmtTime(sec||0)} · ${Math.round(pc)}%</span></div>`; });
+  return h+`</div>`;
+}
+function detLaps(laps,disc){
+  if(!laps||laps.length<2) return "";
+  const rows=laps.map((l,i)=>`<tr><td>${i+1}${l.type==="WORK"?" ●":""}</td><td>${l.distance?(disc==="Natació"?fmtN(l.distance)+" m":r1(l.distance/1000).toFixed(2)):"–"}</td><td>${fmtTime(l.moving_time||l.elapsed_time||0)}</td><td>${disc==="Ciclisme"?(l.speed?r1(l.speed*3.6):"–"):paceStr(l.speed,disc==="Natació"?100:1000)}</td><td>${l.hr?Math.round(l.hr):"–"}</td>${disc==="Ciclisme"?`<td>${l.watts?Math.round(l.watts):"–"}</td>`:""}</tr>`).join("");
+  return `<h2 style="margin-top:18px">Voltes i sèries</h2><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>#</th><th>${disc==="Natació"?"Dist.":"Km"}</th><th>Temps</th><th>${disc==="Ciclisme"?"km/h":disc==="Natació"?"/100m":"/km"}</th><th>FC</th>${disc==="Ciclisme"?"<th>W</th>":""}</tr></thead><tbody>${rows}</tbody></table><div class="small mut" style="margin-top:6px">● = tram de treball detectat per intervals.icu</div></div>`;
+}
+async function sheetDetail(id){
+  const s=st.sessions[id]; if(!s) return;
+  const head=sheetHead(s.desc||s.disc, fmtLong(s.date)+(s.start?" · "+new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):""));
+  openSheet(head+`<div class="empty" style="margin-top:20px">Carregant dades de Garmin…</div>`);
+  const ath=st.viewUid?((st.athletes.find(x=>x.athlete_id===st.viewUid)||{}).intervals_id||""):"";
+  const key=(ath||"me")+"|"+id;
+  let a=detCache[key];
+  if(!a){
+    const {data,error}=await sb.functions.invoke("intervals-sync",{body:{action:"detail",ath,iid:s.iid||"",gid:s.gid||"",date:s.date,start:s.start||""}});
+    let msg=null; if(error){ msg="No s'ha pogut connectar amb intervals.icu."; try{ const b=await error.context.json(); if(b.error==="nolink") msg="Aquest compte no té Garmin connectat."; }catch(_){} }
+    else if(data?.error==="notfound") msg="No s'ha trobat aquesta activitat a intervals.icu.";
+    else if(data?.error) msg="No s'han pogut llegir les dades.";
+    const host=document.querySelector(".sheet"); if(!host) return;
+    if(msg){ host.innerHTML=head+`<div class="empty" style="margin-top:20px">${esc(msg)}</div>`; return; }
+    a=detCache[key]=data;
+  }
+  const host=document.querySelector(".sheet"); if(!host) return;
+  const disc=s.disc, S=a.streams||{}, hasMap=Array.isArray(a.latlngs)&&a.latlngs.length>1;
+  const hasHR=Array.isArray(S.hr)&&S.hr.some(v=>v), hasSp=Array.isArray(S.speed)&&S.speed.some(v=>v);
+  host.innerHTML=head+detTiles(a,disc)
+    +(hasMap?`<h2 style="margin-top:18px">Recorregut</h2><div id="d-map" style="height:240px;border-radius:14px;overflow:hidden;background:var(--card2)"></div>`:"")
+    +detZones(a.icu_hr_zone_times,a.icu_hr_zones,"Zones de FC",v=>v!=null?Math.round(v):"?")
+    +(disc==="Carrera"?detZones(a.pace_zone_times,null,"Zones de ritme",v=>v):"")
+    +(hasHR||hasSp?`<h2 style="margin-top:18px">Gràfiques</h2><div class="card">${hasHR?`<div class="small mut">Freqüència cardíaca</div><div style="height:150px"><canvas id="d-hr"></canvas></div>`:""}${hasSp?`<div class="small mut" style="margin-top:10px">${disc==="Ciclisme"?"Velocitat (km/h)":"Ritme ("+(disc==="Natació"?"/100 m":"/km")+")"}</div><div style="height:150px"><canvas id="d-sp"></canvas></div>`:""}</div>`:"")
+    +detLaps(a.laps,disc)
+    +(a.description?`<h2 style="margin-top:18px">Notes</h2><div class="card small">${esc(a.description)}</div>`:"");
+  // gràfiques
+  if((hasHR||hasSp)&&window.Chart){
+    const useDist=Array.isArray(S.dist)&&S.dist.some(v=>v)&&disc!=="Natació";
+    const xs=(useDist?S.dist.map(v=>v==null?null:Math.round(v/100)/10):(S.time||[]).map(v=>v==null?null:Math.round(v/60)));
+    const opt=(rev)=>({responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{intersect:false,mode:"index"}},elements:{point:{radius:0}},scales:{x:{type:"linear",ticks:{color:"#8B939C",maxTicksLimit:6,callback:v=>v+(useDist?" km":"′")},grid:{color:"#1E2227"}},y:{reverse:!!rev,ticks:{color:"#8B939C",maxTicksLimit:5},grid:{color:"#1E2227"}}}});
+    if(hasHR) detCharts.push(new Chart(document.getElementById("d-hr"),{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:S.hr[i]})).filter(p=>p.x!=null&&p.y),borderColor:"#FF453A",borderWidth:1.5,fill:false}]},options:opt(false)}));
+    if(hasSp){ const per=disc==="Natació"?100:1000;
+      const ys=S.speed.map(v=>!v||v<0.3?null:(disc==="Ciclisme"?Math.round(v*36)/10:Math.round(per/v/6)/10));
+      const o=opt(disc!=="Ciclisme"); if(disc!=="Ciclisme") o.scales.y.ticks.callback=v=>`${Math.floor(v)}:${pad(Math.round((v%1)*60))}`;
+      detCharts.push(new Chart(document.getElementById("d-sp"),{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:ys[i]})).filter(p=>p.x!=null&&p.y!=null&&(disc==="Ciclisme"||p.y<20)),borderColor:DHEX[disc]||"#FFD60A",borderWidth:1.5,fill:false}]},options:o})); }
+  }
+  // mapa
+  if(hasMap){ try{ await loadLeaflet(); const el=document.getElementById("d-map"); if(!el) return;
+    const m=L.map(el,{zoomControl:false,attributionControl:true,scrollWheelZoom:false});
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd",attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(m);
+    const line=L.polyline(a.latlngs,{color:DHEX[disc]||"#FFD60A",weight:4}).addTo(m);
+    L.circleMarker(a.latlngs[0],{radius:5,color:"#3DDC84",fillOpacity:1}).addTo(m); L.circleMarker(a.latlngs[a.latlngs.length-1],{radius:5,color:"#FF453A",fillOpacity:1}).addTo(m);
+    m.fitBounds(line.getBounds(),{padding:[16,16]}); setTimeout(()=>m.invalidateSize(),150);
+  }catch(e){ const el=document.getElementById("d-map"); if(el) el.innerHTML=`<div class="empty">No s'ha pogut carregar el mapa.</div>`; } }
 }
 
 /* ---------------- UI helpers ---------------- */
@@ -820,7 +906,7 @@ function drawWeight(id){
 /* ---------------- sheets ---------------- */
 let sheetState=null;
 function openSheet(html, onMount){ const host=document.getElementById("sheetHost"); host.innerHTML=`<div class="scrim" data-act="closeScrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; document.body.style.overflow="hidden"; onMount && onMount(host.querySelector(".sheet")); const f=host.querySelector("input,select,button"); }
-function closeSheet(){ document.getElementById("sheetHost").innerHTML=""; document.body.style.overflow=""; sheetState=null; }
+function closeSheet(){ detCharts.forEach(c=>{ try{c.destroy();}catch(e){} }); detCharts=[]; document.getElementById("sheetHost").innerHTML=""; document.body.style.overflow=""; sheetState=null; }
 const sheetHead = (t,sub) => `<div class="row between"><div><h3>${esc(t)}</h3>${sub?`<div class="mut small" style="margin-top:2px">${esc(sub)}</div>`:""}</div><button class="btn ghost" style="padding:8px 12px" data-act="close" aria-label="Tancar">✕</button></div>`;
 const pickRow = (name,max,val,min=1) => `<div class="pick" style="grid-template-columns:repeat(${max-min+1},minmax(0,1fr))" data-pick="${name}">${[...Array(max-min+1)].map((_,i)=>{const v=i+min;return `<button type="button" class="${val===v?"on":""}" data-v="${v}">${v}</button>`;}).join("")}</div>`;
 function wirePicks(root, onChange){
@@ -866,6 +952,7 @@ function sheetSession(id, date){
     const s=sheetState, d=s.disc;
     let h=sheetHead(id?(s.pending?"Revisar activitat":"Editar sessió"):"Nova sessió");
     if (s.source==="garmin") h+=`<div class="banner" style="margin:12px 0 0">Importada de Garmin${s.start?` · ${new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}`:""}. ${s.pending?"Comprova les dades i posa la RPE.":""}</div>`;
+    if (s.source==="garmin" && id) h+=`<button class="btn block" style="margin-top:10px" data-act="actDetail" data-id="${esc(id)}">📍 Veure detall (mapa, FC, zones, voltes)</button>`;
     h+=`<div class="field"><span class="flab">Disciplina</span><div class="disc-pick">${DISC.map(x=>`<button type="button" data-disc="${x}" class="${d===x?"on":""}" style="${d===x?`border-color:${DHEX[x]};background:color-mix(in srgb, ${DHEX[x]} 16%, var(--card))`:""}"><span style="color:${DHEX[x]}">${ICON[x]}</span>${x}</button>`).join("")}</div></div>
     <div class="f2"><div class="field"><label for="s-date">Data</label><input class="in-t" id="s-date" type="date" value="${esc(s.date)}"></div><div class="field"><label for="s-min">Minuts</label><input class="in-t" id="s-min" type="number" inputmode="numeric" min="1" max="900" value="${s.min??""}" placeholder="60"></div></div>
     <div class="field"><span class="flab">RPE (0-10) · <span id="s-rpelab" style="color:var(--fg)">${s.rpe!=null?RPE_LAB[s.rpe]:"tria-la uns 30 min després"}</span></span>${pickRow("rpe",10,s.rpe,0)}</div>`;
@@ -1202,6 +1289,7 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "actDetail": sheetDetail(el.dataset.id); break;
     case "pushCfg": sheetPush(); break;
     case "pushOn": pushOn(); break;
     case "pushOff": pushOff(); break;
