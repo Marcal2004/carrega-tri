@@ -745,7 +745,16 @@ function vSetmana(){
   h+=`<h2>Dies</h2><div class="stack">`;
   for (let i=0;i<7;i++){
     const d=addD(ws,i), rc=recovery(d), ss=sessList().filter(s=>s.date===d);
-    h+=`<div class="day ${d===todayStr()?"today-ring":""}"><div class="dayh"><div class="row"><span class="d">${DAYS[i]} ${new Date(P(d)).getUTCDate()}</span>${rc?.decision?`<span class="pill" style="color:${rc.color}"><span class="dot" style="background:${rc.color}"></span>${rc.pct??"–"}%</span>`:""}</div><div class="row"><span class="num small mut">${tot[d]?fmtN(tot[d])+" UA":""}</span><button class="pill" data-act="morning" data-date="${d}">${rc?"Matí ✓":"Matí"}</button></div></div><div class="chips">`;
+    h+=`<div class="day ${d===todayStr()?"today-ring":""}"><div class="dayh"><div class="row"><span class="d">${DAYS[i]} ${new Date(P(d)).getUTCDate()}</span>${rc?.decision?`<span class="pill" style="color:${rc.color}"><span class="dot" style="background:${rc.color}"></span>${rc.pct??"–"}%</span>`:""}</div><div class="row"><span class="num small mut">${tot[d]?fmtN(tot[d])+" UA":""}</span><button class="pill" data-act="morning" data-date="${d}">${rc?"Matí ✓":"Matí"}</button></div></div>`;
+    { const its=dayItems(d), today=todayStr(), used=new Set();
+      if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 2px">`;
+        for(const it of its){ const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m) used.add(m.id);
+          const stt = m ? (m.pending?["Fet · falta RPE","var(--yellow)","✓"]:["Fet","var(--green)","✓"]) : d<today ? ["No fet","var(--red)","✕"] : d===today ? ["Avui","var(--mut)","○"] : ["Pendent","var(--mut)","○"];
+          h+=`<button data-act="calDay" data-date="${d}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%"><span style="width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;${m?`background:${stt[1]};color:#000`:`border:1.5px solid ${stt[1]};color:${stt[1]}`}">${stt[2]}</span><span style="min-width:0;flex:1"><span style="display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</span><span class="small mut">${esc(it.disc)}${it.min?` · ${it.min}′ previstos`:""}${m?` · fet ${m.min||0}′`:""}</span></span><span class="small" style="color:${stt[1]};flex:none">${stt[0]}</span></button>`; }
+        h+=`</div>`; }
+      else if(st.dayplan[d]) h+=`<div class="small mut" style="margin:8px 0 2px">Descans</div>`;
+    }
+    h+=`<div class="chips">`;
     for (const s of ss) h+=`<button class="chip" data-act="editSess" data-id="${esc(s.id)}" ${s.pending?'style="border:1px solid var(--yellow)"':""}><span class="dot" style="background:${DHEX[s.disc]}"></span>${esc(s.disc)} · ${s.min||0}′ · <b class="num">${s.pending?'<span style="color:var(--yellow)">falta RPE</span>':fmtN(loadOf(s))}</b></button>`;
     h+=`<button class="chip add" data-act="newSess" data-date="${d}">+ sessió</button></div></div>`;
   }
