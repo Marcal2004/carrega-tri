@@ -652,12 +652,12 @@ function sessRow(s){
 
 /* ---------------- views ---------------- */
 function vAvui(){
-  const d=todayStr(), rec=recovery(d), {tot}=dayMaps(), ac=acuteChronic(d,tot), z=acwrZone(ac.acwr);
+  const today=todayStr(), d=st.planDay&&isDate(st.planDay)?st.planDay:today, isT=d===today, fut=d>today, dayLab=isT?"avui":`${DAYS_L[dow(d)].toLowerCase()} ${fmtShort(d)}`, rec=recovery(d), {tot}=dayMaps(), ac=acuteChronic(d,tot), z=acwrZone(ac.acwr);
   const ws=monday(d), pl=planned(ws), wr=weekReal(ws);
   const todays=sessList().filter(s=>s.date===d);
   const lastW = Object.entries(st.weights).sort((a,b)=>a[0]<b[0]?1:-1)[0];
   const needSetup = st.profileLoaded && !st.profile;
-  let h=`<div class="photo main"><img src="${cover()}" alt="${prof().cover?"Foto de portada":"Ciclista amb el mallot groc de la Creu Groga sobre la bici"}" ${prof().cover?'style="object-position:50% 50%"':""}>${st.viewUid?"":`<button data-act="cover" aria-label="Canviar la foto d'Avui" style="position:absolute;top:12px;left:12px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>`}<span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${prof().name?`Hola, ${esc(prof().name)}`:"Avui"}</h1></div></div>`;
+  let h=`<div class="photo main"><img src="${cover()}" alt="${prof().cover?"Foto de portada":"Ciclista amb el mallot groc de la Creu Groga sobre la bici"}" ${prof().cover?'style="object-position:50% 50%"':""}>${st.viewUid?"":`<button data-act="cover" aria-label="Canviar la foto d'Avui" style="position:absolute;top:12px;left:12px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>`}<span class="tag">Setm. ${weekNo(ws)}</span><div class="ov"><div class="eyebrow">${esc(fmtLong(d))}</div><h1>${isT?(prof().name?`Hola, ${esc(prof().name)}`:"Avui"):esc(DAYS_L[dow(d)].charAt(0).toUpperCase()+DAYS_L[dow(d)].slice(1))}</h1>${isT?"":`<button class="btn" style="margin-top:8px;padding:6px 12px;font-size:13px" data-act="goToday">← Tornar a avui</button>`}</div></div>`;
   if (needSetup) h+=`<div class="card" style="margin-bottom:12px"><div class="decision">Configura la temporada</div><p class="mut small" style="margin:6px 0 12px">Posa el teu nom, el dilluns d'inici i el pes objectiu. Els coeficients per disciplina ja vénen carregats.</p><button class="btn pri block" data-act="settings">Configurar</button></div>`;
   h+=garminBlock(d,rec);
   h+=vDayPlan();
@@ -668,16 +668,16 @@ function vAvui(){
     <div class="kv"><span>VFC</span><b>${rec.r.hrv??"–"} ms${rec.dev!=null?` <span style="color:${rec.dev<-0.05?"var(--yellow)":"var(--mut)"}">(${rec.dev>0?"+":""}${Math.round(rec.dev*100)}%)</span>`:""}</b></div></div>
     <button class="btn ghost" style="margin-top:8px;padding:8px 12px;font-size:13px" data-act="morning" data-date="${d}">Editar</button>`;
   } else {
-    h+=`<div class="decision mut">Sense dades d'avui</div><p class="mut small" style="margin:6px 0 10px">Fes el control del matí: son, bateria i 4 preguntes.</p><button class="btn pri" data-act="morning" data-date="${d}">Control del matí</button>`;
+    h+=`${fut?`<div class="decision mut">Dia futur</div><p class="mut small" style="margin:6px 0 0">Aquí veuràs la recuperació quan arribi el dia.</p>`:`<div class="decision mut">Sense dades ${isT?"d'avui":"d'aquest dia"}</div><p class="mut small" style="margin:6px 0 10px">${isT?"Fes el control del matí: son, bateria i 4 preguntes.":"No es va fer el qüestionari. Pots afegir-lo ara."}</p><button class="btn pri" data-act="morning" data-date="${d}">${isT?"Control del matí":"Afegir qüestionari"}</button>`}`;
   }
   h+=`</div></div></div>`;
   const pc = pl&&pl.load ? wr.load/pl.load : null;
   h+=`<div class="grid3" style="margin-top:10px">
-    <div class="tile"><div class="lab">Avui</div><div class="val">${fmtN(tot[d]||0)}</div><div class="sub">UA ponderada</div></div>
+    <div class="tile"><div class="lab">${isT?"Avui":esc(fmtShort(d))}</div><div class="val">${fmtN(tot[d]||0)}</div><div class="sub">UA ponderada</div></div>
     <div class="tile"><div class="lab">Setmana</div><div class="val">${fmtN(wr.load)}</div><div class="sub">${pc!=null?`${Math.round(pc*100)}% de ${fmtN(pl.load)}`:"sense pla"}</div></div>
     <div class="tile"><div class="lab">ACWR</div><div class="val" style="color:${z?z[1]:"var(--fg)"}">${ac.acwr!=null?ac.acwr.toFixed(2):"–"}</div><div class="sub">${z?z[0]:"des del dia 21"}</div></div></div>`;
-  h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">Sessions d'avui</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="newSess" data-date="${d}">+ Afegir</button></div><div class="stack" style="margin-top:10px">`;
-  h+= todays.length ? todays.map(sessRow).join("") : `<div class="empty">Encara no has registrat cap sessió avui. Toca el <b>+</b> de baix per afegir-ne una.</div>`;
+  h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">Sessions ${isT?"d'avui":"del dia"}</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="newSess" data-date="${d}">+ Afegir</button></div><div class="stack" style="margin-top:10px">`;
+  h+= todays.length ? todays.map(sessRow).join("") : `<div class="empty">${isT?"Encara no has registrat cap sessió avui. Toca el <b>+</b> de baix per afegir-ne una.":fut?"Dia futur.":"No hi ha cap sessió registrada aquest dia."}</div>`;
   h+=`</div>`;
   const pendAll=sessList().filter(s=>s.pending).sort((a,b)=>a.date<b.date?1:-1), pendToday=pendAll.filter(s=>s.date===d), pend=st.pendAll?pendAll:pendToday;
   if(pendAll.length){
@@ -1268,7 +1268,7 @@ document.addEventListener("click", e=>{
   const el=e.target.closest("[data-act]"); if(!el) return; const a=el.dataset.act;
   if (a==="closeScrim"){ if(e.target===el) closeSheet(); return; }
   switch(a){
-    case "go": st.view=el.dataset.v; if(st.view==="setmana") st.weekRef=monday(todayStr()); if(st.view==="pla") st.plaTab="home"; render(); window.scrollTo(0,0); break;
+    case "go": if(el.dataset.v==="avui"&&st.view==="avui") st.planDay=null; st.view=el.dataset.v; if(st.view==="setmana") st.weekRef=monday(todayStr()); if(st.view==="pla") st.plaTab="home"; render(); window.scrollTo(0,0); break;
     case "close": closeSheet(); break;
     case "newSess": sheetSession(null, el.dataset.date || (st.view==="setmana" && todayStr()>=st.weekRef && todayStr()<=addD(st.weekRef,6) ? todayStr() : st.view==="setmana" ? st.weekRef : todayStr())); break;
     case "editSess": sheetSession(el.dataset.id); break;
@@ -1308,6 +1308,7 @@ document.addEventListener("click", e=>{
     case "importJson": { const inp=document.createElement("input"); inp.type="file"; inp.accept="application/json,.json"; inp.onchange=()=>inp.files[0]&&importJson(inp.files[0]); inp.click(); break; }
     case "pendAll": st.pendAll=!st.pendAll; render(); break;
     case "pickDay": st.planDay=el.dataset.date; render(); break;
+    case "goToday": st.planDay=null; render(); window.scrollTo(0,0); break;
     case "dayWk": st.planDay=addD(st.planDay&&isDate(st.planDay)?st.planDay:todayStr(), Number(el.dataset.d)); render(); break;
     case "editDay": sheetDay(el.dataset.date); break;
     case "saveDay": saveDay(); break;
