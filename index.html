@@ -597,9 +597,23 @@ function detLaps(laps,disc){
   const rows=laps.map((l,i)=>`<tr><td>${i+1}${l.type==="WORK"?" ●":""}</td><td>${l.distance?(disc==="Natació"?fmtN(l.distance)+" m":r1(l.distance/1000).toFixed(2)):"–"}</td><td>${fmtTime(l.moving_time||l.elapsed_time||0)}</td><td>${disc==="Ciclisme"?(l.speed?r1(l.speed*3.6):"–"):paceStr(l.speed,disc==="Natació"?100:1000)}</td><td>${l.hr?Math.round(l.hr):"–"}</td>${disc==="Ciclisme"?`<td>${l.watts?Math.round(l.watts):"–"}</td>`:""}</tr>`).join("");
   return `<h2 style="margin-top:18px">Voltes i sèries</h2><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>#</th><th>${disc==="Natació"?"Dist.":"Km"}</th><th>Temps</th><th>${disc==="Ciclisme"?"km/h":disc==="Natació"?"/100m":"/km"}</th><th>FC</th>${disc==="Ciclisme"?"<th>W</th>":""}</tr></thead><tbody>${rows}</tbody></table><div class="small mut" style="margin-top:6px">● = tram de treball detectat per intervals.icu</div></div>`;
 }
+function detSplits(S,disc){
+  if(disc==="Natació"||!Array.isArray(S.dist)||!Array.isArray(S.time)) return "";
+  const step=disc==="Ciclisme"?5000:1000, out=[]; let next=step, t0=0, d0=0, i0=0;
+  for(let i=0;i<S.dist.length;i++){ const d=S.dist[i], t=S.time[i]; if(d==null||t==null) continue;
+    if(d>=next){ const hr=(S.hr||[]).slice(i0,i+1).filter(v=>v), seg=d-d0, sec=t-t0;
+      out.push({n:Math.round(next/1000),sec,seg,hr:hr.length?Math.round(hr.reduce((a,b)=>a+b,0)/hr.length):null}); t0=t; d0=d; i0=i; next+=step; } }
+  const last=S.dist.filter(v=>v!=null).pop(), tl=S.time.filter(v=>v!=null).pop();
+  if(last&&last-d0>step*0.2&&tl>t0){ const hr=(S.hr||[]).slice(i0).filter(v=>v); out.push({n:Math.round(last/100)/10,sec:tl-t0,seg:last-d0,hr:hr.length?Math.round(hr.reduce((a,b)=>a+b,0)/hr.length):null,part:true}); }
+  if(out.length<2) return "";
+  const pv=o=>disc==="Ciclisme"?`${r1(o.seg/o.sec*3.6)} km/h`:`${fmtTime(o.sec/(o.seg/1000))}/km`;
+  const best=Math.min(...out.filter(o=>!o.part).map(o=>o.sec/o.seg));
+  return `<h2 style="margin-top:18px">Splits (${disc==="Ciclisme"?"cada 5 km":"per km"})</h2><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>Km</th><th>Temps</th><th>${disc==="Ciclisme"?"Velocitat":"Ritme"}</th><th>FC</th></tr></thead><tbody>${out.map(o=>`<tr><td>${o.part?r1(o.n):o.n}</td><td>${fmtTime(o.sec)}</td><td style="${!o.part&&o.sec/o.seg===best?"color:var(--brand);font-weight:700":""}">${pv(o)}</td><td>${o.hr??"–"}</td></tr>`).join("")}</tbody></table><div class="small mut" style="margin-top:6px">Calculats amb el GPS de l'activitat (aproximats). En groc, el més ràpid.</div></div>`;
+}
 async function sheetDetail(id){
   const s=st.sessions[id]; if(!s) return;
-  const head=sheetHead(s.desc||s.disc, fmtLong(s.date)+(s.start?" · "+new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):""));
+  const head=sheetHead(s.desc||s.disc, fmtLong(s.date)+(s.start?" · "+new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):""))
+    +`<div class="row between" style="margin-top:10px;gap:8px"><span class="small mut">${esc(s.disc)} · ${s.min||0}′${s.rpe!=null?` · RPE ${s.rpe}`:""}${!s.pending?` · ${fmtN(loadOf(s))} UA`:""}</span>${st.viewUid?"":`<button class="pill" data-act="editSessForce" data-id="${esc(id)}">✎ Editar RPE i dades</button>`}</div>`;
   openSheet(head+`<div class="empty" style="margin-top:20px">Carregant dades de Garmin…</div>`);
   const ath=st.viewUid?((st.athletes.find(x=>x.athlete_id===st.viewUid)||{}).intervals_id||""):"";
   const key=(ath||"me")+"|"+id;
@@ -621,6 +635,7 @@ async function sheetDetail(id){
     +detZones(a.icu_hr_zone_times,a.icu_hr_zones,"Zones de FC",v=>v!=null?Math.round(v):"?")
     +(disc==="Carrera"?detZones(a.pace_zone_times,null,"Zones de ritme",v=>v):"")
     +(hasHR||hasSp?`<h2 style="margin-top:18px">Gràfiques</h2><div class="card">${hasHR?`<div class="small mut">Freqüència cardíaca</div><div style="height:150px"><canvas id="d-hr"></canvas></div>`:""}${hasSp?`<div class="small mut" style="margin-top:10px">${disc==="Ciclisme"?"Velocitat (km/h)":"Ritme ("+(disc==="Natació"?"/100 m":"/km")+")"}</div><div style="height:150px"><canvas id="d-sp"></canvas></div>`:""}</div>`:"")
+    +detSplits(S,disc)
     +detLaps(a.laps,disc)
     +(a.description?`<h2 style="margin-top:18px">Notes</h2><div class="card small">${esc(a.description)}</div>`:"");
   // gràfiques
@@ -765,11 +780,11 @@ function vCoachPlan(){
     <div style="margin-top:4px">${pl?.p?.goal?esc(pl.p.goal):'<span class="mut">Sense objectiu</span>'}</div>
     <div class="small mut" style="margin-top:6px">${DISC.map(d=>{ const hh=num(pl?.p?.h?.[DKEY[d]]); return `<span style="margin-right:10px"><span class="dot" style="background:${DHEX[d]}"></span> ${r1((wr.minD[d]||0)/60)}${hh!=null?"/"+hh:""} h</span>`; }).join("")}</div></div>`;
   h+=`<div class="stack" style="margin-top:10px">`;
-  for(let i=0;i<7;i++){ const d=addD(ws,i), its=dayItems(d), ss=sessList().filter(s=>s.date===d), used=new Set(), note=st.dayplan[d]?.note||"";
+  for(let i=0;i<7;i++){ const d=addD(ws,i), its=dayItems(d), rows=dayMatches(d), note=st.dayplan[d]?.note||"";
     h+=`<div class="day ${d===today?"today-ring":""}"><div class="dayh"><span class="d">${DAYS[i]} ${Number(d.slice(8))}</span><button class="btn ghost" style="padding:6px 12px;font-size:12px" data-act="editDay" data-date="${d}">${its.length||st.dayplan[d]?"Editar":"+ Afegir"}</button></div>`;
     if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">`;
-      for(const it of its){ const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m) used.add(m.id); const stc=m?"var(--green)":d<today?"var(--red)":"var(--mut2)";
-        h+=`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2)"><span class="dot" style="background:${DHEX[it.disc]};margin-top:6px"></span><span style="flex:1;min-width:0"><b style="font-size:14px">${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${it.detail?`<span class="small mut" style="display:block;white-space:pre-line;margin-top:2px">${esc(it.detail)}</span>`:""}</span><span class="small" style="color:${stc};flex:none">${m?"✓ fet":d<today?"✕":""}</span></div>`; }
+      for(const {it,idx,m} of rows){ const S=itemStatus(d,it,m), [lab,col]=stInfo(S.k);
+        h+=`<button data-act="planItem" data-date="${d}" data-i="${idx}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%;border-left:3px solid ${col}">${stBadge(S.k,20)}<span style="flex:1;min-width:0"><b style="font-size:14px"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${it.detail?`<span class="small mut" style="display:block;white-space:pre-line;margin-top:2px;max-height:3.2em;overflow:hidden">${esc(it.detail)}</span>`:""}</span><span class="small" style="color:${col};flex:none">${PST[S.k]?lab:""}</span></button>`; }
       h+=`</div>`; }
     else h+=`<div class="small mut" style="margin-top:6px">${st.dayplan[d]?"Descans":"Res planificat"}</div>`;
     if(note) h+=`<div class="note" style="margin:6px 0 0">${esc(note)}</div>`;
@@ -1157,11 +1172,10 @@ function vSetmana(){
   for (let i=0;i<7;i++){
     const d=addD(ws,i), rc=recovery(d), ss=sessList().filter(s=>s.date===d);
     h+=`<div class="day ${d===todayStr()?"today-ring":""}"><div class="dayh"><div class="row"><span class="d">${DAYS[i]} ${new Date(P(d)).getUTCDate()}</span>${rc?.decision?`<span class="pill" style="color:${rc.color}"><span class="dot" style="background:${rc.color}"></span>${rc.pct??"–"}%</span>`:""}</div><div class="row"><span class="num small mut">${tot[d]?fmtN(tot[d])+" UA":""}</span><button class="pill" data-act="morning" data-date="${d}">${rc?"Matí ✓":"Matí"}</button></div></div>`;
-    { const its=dayItems(d), today=todayStr(), used=new Set();
-      if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 2px">`;
-        for(const it of its){ const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m) used.add(m.id);
-          const stt = m ? (m.pending?["Fet · falta RPE","var(--yellow)","✓"]:["Fet","var(--green)","✓"]) : d<today ? ["No fet","var(--red)","✕"] : d===today ? ["Avui","var(--mut)","○"] : ["Pendent","var(--mut)","○"];
-          h+=`<button data-act="calDay" data-date="${d}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%"><span style="width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;${m?`background:${stt[1]};color:#000`:`border:1.5px solid ${stt[1]};color:${stt[1]}`}">${stt[2]}</span><span style="min-width:0;flex:1"><span style="display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</span><span class="small mut">${esc(it.disc)}${it.min?` · ${it.min}′ previstos`:""}${m?` · fet ${m.min||0}′`:""}</span></span><span class="small" style="color:${stt[1]};flex:none">${stt[0]}</span></button>`; }
+    { const rows=dayMatches(d);
+      if(rows.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 2px">`;
+        for(const {it,idx,m} of rows){ const S=itemStatus(d,it,m), [lab,col]=stInfo(S.k);
+          h+=`<button data-act="planItem" data-date="${d}" data-i="${idx}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%;border-left:3px solid ${col}">${stBadge(S.k)}<span style="min-width:0;flex:1"><span style="display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</span><span class="small mut">${esc(it.disc)}${it.min?` · ${it.min}′ previstos`:""}${m?` · fet ${m.min||0}′`:""}</span></span><span class="small" style="color:${col};flex:none">${lab}</span></button>`; }
         h+=`</div>`; }
       else if(st.dayplan[d]) h+=`<div class="small mut" style="margin:8px 0 2px">Descans</div>`;
     }
@@ -1653,6 +1667,69 @@ function saveTest(){
 }
 
 /* ---------------- daily training calendar ---------------- */
+/* ---------------- estat i fitxa dels entrenos planificats ---------------- */
+const PST={full:["100 %","var(--green)","✓"],partial:["A mitges","var(--yellow)","½"],none:["No fet","var(--red)","✕"]};
+function dayMatches(date){
+  const its=dayItems(date), ss=sessList().filter(s=>s.date===date), used=new Set();
+  return its.map((it,idx)=>{ const m=ss.find(q=>q.disc===it.disc&&!used.has(q.id)); if(m) used.add(m.id); return {it,idx,m}; });
+}
+function itemStatus(date,it,m){
+  if(it.status&&PST[it.status]) return {k:it.status,manual:true};
+  const today=todayStr();
+  if(m){ if(!it.min||!m.min||m.min>=0.85*it.min) return {k:"full"}; return {k:"partial"}; }
+  if(date<today) return {k:"none"};
+  return {k:date===today?"today":"pending"};
+}
+function stInfo(k){ return PST[k]||(k==="today"?["Avui","var(--mut)","○"]:["Pendent","var(--mut)","○"]); }
+function stBadge(k,size=22){ const [,c,g]=stInfo(k), solid=!!PST[k]; return `<span style="width:${size}px;height:${size}px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:${Math.round(size*.55)}px;font-weight:700;${solid?`background:${c};color:#0A0A0A`:`border:1.5px solid ${c};color:${c}`}">${g}</span>`; }
+const RUN_PZ=[["Z1","Recuperació",1.29,null],["Z2","Aeròbic",1.14,1.29],["Z3","Tempo",1.06,1.13],["Z4","Llindar",0.99,1.05],["Z5","VO2 màx",null,0.98]];
+const SWIM_Z=[["Z1","Recuperació",15,null],["Z2","Aeròbic",8,14],["Z3","Tempo",3,7],["Z4","Llindar (CSS)",-2,2],["Z5","VO2 màx",null,-3]];
+function lastTest(type){ return testList().find(t=>t.type===type&&t.value!=null)||null; }
+function runThr(){ const t=lastTest("run30"); if(t) return {sec:t.value,src:"test llindar 30′ · "+fmtShort(t.date)}; const t10=lastTest("run10k"); if(t10) return {sec:t10.value/10*1.03,src:"estimat del 10 km · "+fmtShort(t10.date)}; const t5=lastTest("run5k"); if(t5) return {sec:t5.value/5*1.07,src:"estimat del 5 km · "+fmtShort(t5.date)}; return null; }
+function swimCSS(){ const a=lastTest("nat400"), b=lastTest("nat200"); if(a&&b&&a.value>b.value) return {sec:(a.value-b.value)/2,src:"test 400 + 200 m"}; const k=lastTest("nat1000"); if(k) return {sec:k.value/10*0.98,src:"estimat del 1.000 m"}; return null; }
+function zonesFor(disc,text){
+  const p=prof(), L=num(p.lthr), F=num(p.ftp), hot=new Set((String(text||"").toUpperCase().match(/Z[1-5]/g)||[]));
+  const tbl=(title,rows,note)=>`<h2 style="margin-top:18px">${title}</h2><div class="card" style="padding:4px 12px"><table class="tbl"><tbody>${rows.map(([z,n,v])=>`<tr style="${hot.has(z)?"background:color-mix(in srgb, var(--brand) 16%, transparent)":""}"><td><b style="${hot.has(z)?"color:var(--brand)":""}">${z}</b> <span class="mut small">${n}</span></td><td class="num">${v}</td></tr>`).join("")}</tbody></table>${note?`<div class="small mut" style="margin:6px 0 8px">${note}</div>`:""}</div>`;
+  const ft=s=>fmtTime(Math.round(s));
+  let h="";
+  if(disc==="Carrera"){ const T=runThr();
+    if(T) h+=tbl("Ritmes de referència",RUN_PZ.map(([z,n,a,b])=>[z,n, a==null?`< ${ft(T.sec*b)}/km`:b==null?`> ${ft(T.sec*a)}/km`:`${ft(T.sec*a)} – ${ft(T.sec*b)}/km`]).map(r=>{ if(r[0]==="Z1"){ r[2]=r[2].replace(">","més lent de"); } if(r[0]==="Z5"){ r[2]=r[2].replace("<","més ràpid de"); } return r; }),`Llindar ${ft(T.sec)}/km (${T.src}).`);
+    else h+=`<div class="empty" style="margin-top:14px">Sense ritme llindar. Fes el test de 30′ (Pla › Tests) per veure els ritmes.</div>`; }
+  if(disc==="Natació"){ const C=swimCSS();
+    if(C) h+=tbl("Ritmes de referència /100 m",SWIM_Z.map(([z,n,a,b])=>[z,n, a==null?`més ràpid de ${ft(C.sec+b)}`:b==null?`més lent de ${ft(C.sec+a)}`:`${ft(C.sec+a)} – ${ft(C.sec+b)}`]),`CSS ${ft(C.sec)}/100 m (${C.src}).`);
+    else h+=`<div class="empty" style="margin-top:14px">Sense CSS. Fes el test de 400 + 200 m (Pla › Tests) per veure els ritmes.</div>`; }
+  if(disc==="Ciclisme"&&F){ const up=i=>Math.round(F*PW_Z[i][3]); h+=tbl("Potència de referència",PW_Z.map(([z,n,lo,hi],i)=>[z,n,i===0?`< ${up(0)} W`:hi?`${up(i-1)+1} – ${up(i)} W`:`> ${up(i-1)} W`]),`FTP ${F} W.`); }
+  if(disc!=="Força"){
+    if(L) h+=tbl("Freqüència cardíaca",HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):null; return [z,n,i===0?`< ${Math.round(L*hi)+1} ppm`:hi?`${a} – ${b} ppm`:`> ${a-1} ppm`]; }),`Sobre LTHR ${L} ppm${num(p.hrMax)?` · FC màx ${p.hrMax}`:""}.`);
+    else h+=`<div class="empty" style="margin-top:14px">Sense LTHR. Posa-la a Pla › Zones de FC per veure les zones de pulsacions.</div>`; }
+  return h;
+}
+function sheetPlanItem(date,idx){
+  const rows=dayMatches(date), r=rows.find(x=>x.idx===idx); if(!r) return;
+  const {it,m}=r, S=itemStatus(date,it,m), [lab,col]=stInfo(S.k);
+  sheetState={kind:"planItem",date,idx};
+  let h=sheetHead(it.title||it.disc, fmtLong(date));
+  h+=`<div class="row" style="gap:10px;margin-top:12px">${discIcon(it.disc)}<div style="flex:1;min-width:0"><b>${esc(it.disc)}</b><div class="small mut">${it.min?fmtMinH(it.min)+" previstos":"Sense durada"}${m?` · fet ${fmtMinH(m.min||0)}`:""}</div></div><span class="pill" style="color:${col}">${stBadge(S.k,16)} ${lab}${S.manual?"":(PST[S.k]?" · auto":"")}</span></div>`;
+  if(it.detail) h+=`<h2 style="margin-top:18px">Entreno</h2><div class="card" style="white-space:pre-line;line-height:1.5">${esc(it.detail)}</div>`;
+  h+=`<h2 style="margin-top:18px">Compliment</h2><div class="grid3" style="gap:8px">${Object.entries(PST).map(([k,[l,c,g]])=>`<button class="btn" data-act="setPst" data-k="${k}" style="flex-direction:column;gap:4px;padding:10px 4px;${S.k===k?`background:${c};color:#0A0A0A`:`border:1px solid ${c};color:${c};background:transparent`}"><span style="font-size:18px">${g}</span><span style="font-size:12px">${l}</span></button>`).join("")}</div>`;
+  h+=`<div class="small mut" style="margin-top:6px">${S.manual?`Marcat a mà. <button class="pill" data-act="setPst" data-k="">Tornar a automàtic</button>`:"Es calcula sol: verd si s'ha fet almenys el 85 % del temps previst, taronja si menys, vermell si el dia ha passat sense fer-lo."}</div>`;
+  h+=zonesFor(it.disc,(it.title||"")+" "+(it.detail||""));
+  if(m){ h+=`<h2 style="margin-top:18px">Activitat feta</h2>`+sessRow(m).replace('data-act="editSess"','data-act="openSess"');
+    if(m.source==="garmin"&&!m.pending) h+=`<button class="btn pri block" style="margin-top:10px" data-act="actDetail" data-id="${esc(m.id)}">📈 Gràfics de FC, ritme i splits</button>`; }
+  h+=`<button class="btn ghost block" style="margin-top:10px" data-act="editDay" data-date="${date}">Editar el pla del dia</button>`;
+  openSheet(h);
+}
+async function setPlanStatus(k){
+  const {date,idx}=sheetState, dp=st.dayplan[date]; if(!dp) return;
+  const all=Array.isArray(dp.items)?dp.items.map(x=>({...x})):[]; let n=-1, pos=-1;
+  for(let i=0;i<all.length;i++){ if(all[i]&&all[i].disc){ n++; if(n===idx){ pos=i; break; } } }
+  if(pos<0) return;
+  if(k) all[pos].status=k; else delete all[pos].status;
+  await write("dayplan",date,{...dp,items:all});
+  sheetPlanItem(date,idx);
+}
+function openSess(id){ const s=st.sessions[id]; if(!s) return; if(s.source==="garmin"&&!s.pending&&(s.iid||s.gid)) sheetDetail(id); else sheetSession(id); }
+
 function dayItems(date){ const p=st.dayplan[date]; return p&&Array.isArray(p.items)?p.items.filter(x=>x&&x.disc):[]; }
 function vDayPlan(){
   const today=todayStr(), sel=st.planDay&&isDate(st.planDay)?st.planDay:today, ws=monday(sel);
@@ -1671,7 +1748,7 @@ function vDayPlan(){
   h+=`<div class="stack" style="margin-top:10px">`;
   if(!items.length) h+=`<div class="empty">${st.dayplan[sel]?"Dia de descans":"Res planificat aquest dia."}${note?`<div class="small" style="margin-top:6px">${esc(note)}</div>`:""}</div>`;
   else {
-    h+=items.map(t=>{ const ok=done.has(t.disc); return `<div class="card" style="padding:12px;display:flex;gap:12px;align-items:flex-start">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}</b><span class="small mut num" style="white-space:nowrap">${t.min?fmtMinH(t.min):""}${ok?` <span style="color:var(--green);font-weight:700">✓</span>`:""}</span></div>${t.detail?`<div class="small mut" style="margin-top:4px;white-space:pre-line">${esc(t.detail)}</div>`:""}</div></div>`; }).join("");
+    h+=dayMatches(sel).map(({it:t,idx,m})=>{ const S=itemStatus(sel,t,m), [lab,col]=stInfo(S.k); return `<button class="card" data-act="planItem" data-date="${sel}" data-i="${idx}" style="padding:12px;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border-left:4px solid ${col};border-radius:0 14px 14px 0">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}</b><span class="small num" style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px"><span class="mut">${t.min?fmtMinH(t.min):""}</span>${PST[S.k]?stBadge(S.k,18):""}</span></div>${t.detail?`<div class="small mut" style="margin-top:4px;white-space:pre-line;max-height:4.4em;overflow:hidden">${esc(t.detail)}</div>`:""}<div class="small" style="margin-top:6px;color:${col}">${PST[S.k]?lab:""}${PST[S.k]?" · ":""}<span class="mut">Toca per veure ritmes i FC ›</span></div></div></button>`; }).join("");
     if(note) h+=`<div class="note" style="margin:0 2px">${esc(note)}</div>`;
   }
   return h+`</div>`;
@@ -1810,7 +1887,11 @@ document.addEventListener("click", e=>{
     case "go": if(el.dataset.v==="avui"&&st.view==="avui") st.planDay=null; st.view=el.dataset.v; if(st.view==="setmana") st.weekRef=monday(todayStr()); if(st.view==="pla") st.plaTab="home"; render(); window.scrollTo(0,0); break;
     case "close": closeSheet(); break;
     case "newSess": sheetSession(null, el.dataset.date || (st.view==="setmana" && todayStr()>=st.weekRef && todayStr()<=addD(st.weekRef,6) ? todayStr() : st.view==="setmana" ? st.weekRef : todayStr())); break;
-    case "editSess": sheetSession(el.dataset.id); break;
+    case "editSess": openSess(el.dataset.id); break;
+    case "editSessForce": sheetSession(el.dataset.id); break;
+    case "openSess": openSess(el.dataset.id); break;
+    case "planItem": sheetPlanItem(el.dataset.date, Number(el.dataset.i)); break;
+    case "setPst": setPlanStatus(el.dataset.k); break;
     case "saveSess": saveSess(); break;
     case "brick": { const root=document.querySelector(".sheet"); readSess(root); sheetState.brick=!sheetState.brick; sheetSession.rebuild(); break; }
     case "morning": sheetMorning(el.dataset.date||todayStr()); break;
