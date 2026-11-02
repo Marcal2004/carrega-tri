@@ -133,6 +133,13 @@ h2{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.06em;t
 .mtiles .lab{letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mtiles .sub{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plist{background:var(--card);border-radius:14px;overflow:hidden}.prow{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;padding:13px 16px;border-bottom:1px solid var(--line)}.prow:last-child{border-bottom:0}
 .photo .tag{position:absolute;top:12px;right:12px;background:var(--brand);color:var(--on-brand);border-radius:999px;padding:4px 10px;font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.wblocks{display:flex;flex-direction:column;gap:8px}
+.wb{background:var(--card);border-radius:12px;padding:10px 12px;border-left:3px solid var(--line)}
+.wb-warm{border-left-color:#FF9F1C}.wb-main{border-left-color:var(--brand)}.wb-cool{border-left-color:#5B9BFF}.wb-notes{border-left-color:var(--mut2)}
+.wbh{font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
+.wl{line-height:1.5;font-size:15px}.wl.sub{padding-left:14px;position:relative}.wl.sub::before{content:"›";position:absolute;left:2px;color:var(--mut)}
+.wl.rep{font-family:var(--disp);font-weight:700;letter-spacing:.06em;color:var(--brand);margin-top:4px}
+.hl{color:var(--brand);font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -784,7 +791,7 @@ function vCoachPlan(){
     h+=`<div class="day ${d===today?"today-ring":""}"><div class="dayh"><span class="d">${DAYS[i]} ${Number(d.slice(8))}</span><button class="btn ghost" style="padding:6px 12px;font-size:12px" data-act="editDay" data-date="${d}">${its.length||st.dayplan[d]?"Editar":"+ Afegir"}</button></div>`;
     if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">`;
       for(const {it,idx,m} of rows){ const S=itemStatus(d,it,m), [lab,col]=stInfo(S.k);
-        h+=`<button data-act="planItem" data-date="${d}" data-i="${idx}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%;border-left:4px solid ${col}"><span style="flex:1;min-width:0"><b style="font-size:14px"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${it.detail?`<span class="small mut" style="display:block;white-space:pre-line;margin-top:2px;max-height:3.2em;overflow:hidden">${esc(it.detail)}</span>`:""}</span></button>`; }
+        h+=`<button data-act="planItem" data-date="${d}" data-i="${idx}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%;border-left:4px solid ${col}"><span style="flex:1;min-width:0"><b style="font-size:14px"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${workPreview(it)?`<span class="small mut" style="display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(workPreview(it))}</span>`:""}</span></button>`; }
       h+=`</div>`; }
     else h+=`<div class="small mut" style="margin-top:6px">${st.dayplan[d]?"Descans":"Res planificat"}</div>`;
     if(note) h+=`<div class="note" style="margin:6px 0 0">${esc(note)}</div>`;
@@ -1667,6 +1674,37 @@ function saveTest(){
 }
 
 /* ---------------- daily training calendar ---------------- */
+/* ---------------- format dels entrenos (blocs) ---------------- */
+const BLK=[["warm","Escalfament","🔥"],["main","Bloc principal","⚡"],["cool","Final","🧊"],["notes","Notes","📝"]];
+function hasBlocks(it){ return BLK.some(([k])=>it&&it[k]); }
+function composeDetail(it){ return BLK.filter(([k])=>it[k]).map(([k,l])=>`${l}: ${it[k]}`).join("\n"); }
+function hiWork(txt){
+  let t=esc(txt);
+  t=t.replace(/(^|\s)(\d+)x(?=\s|$)/gm,"$1$2×").replace(/(\d)mtr\b/g,"$1 m").replace(/\b(\d+)m\b(?=\s)/g,"$1′").replace(/\b(\d+)s\b(?=\s)/g,"$1″");
+  t=t.replace(/(\d{1,2}:\d{2}(?:\s*[–-]\s*\d{1,2}:\d{2})?\s*(?:\/\s*(?:km|100\s*m))?)/g,'<b class="hl">$1</b>')
+     .replace(/(\d+(?:[–-]\d+)?\s*%\s*(?:LTHR|FTP|Pace|FC màx|HRmax))/gi,'<b class="hl">$1</b>')
+     .replace(/\b(Z[1-5](?:[–-]Z?[1-5])?)\b/g,'<b class="hl">$1</b>')
+     .replace(/\b(RPE\s*\d+(?:\s*[–-]\s*\d+)?)\b/g,'<b class="hl">$1</b>')
+     .replace(/(\d{2,3}\s*W)\b/g,'<b class="hl">$1</b>');
+  return t;
+}
+function workLines(txt){
+  return String(txt||"").split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const rep_=/^(\d+)\s*[x×]\s*$/i.exec(l); if(rep_) return `<div class="wl rep">${rep_[1]}× repeticions</div>`;
+    const sub=/^[-·•]\s*/.test(l); return `<div class="wl${sub?" sub":""}">${hiWork(l.replace(/^[-·•]\s*/,""))}</div>`; }).join("");
+}
+function workHTML(it){
+  if(hasBlocks(it)) return `<div class="wblocks">${BLK.filter(([k])=>it[k]).map(([k,l,ic])=>`<div class="wb wb-${k}"><div class="wbh">${ic} ${l}</div>${workLines(it[k])}</div>`).join("")}</div>`;
+  if(it&&it.detail){
+    const lines=String(it.detail).split(/\n+/), lab=/^(Escalfament|Bloc principal|Principal|Final|Tornada a la calma|Notes?)\s*:\s*/i;
+    if(lines.some(x=>lab.test(x.trim()))){ const map={escalfament:"warm","bloc principal":"main",principal:"main",final:"cool","tornada a la calma":"cool",notes:"notes",nota:"notes"}, o={}; let cur="main";
+      for(const raw of lines){ const x=raw.trim(); const m=lab.exec(x); if(m){ cur=map[m[1].toLowerCase()]||"main"; const rest=x.slice(m[0].length); o[cur]=(o[cur]?o[cur]+"\n":"")+rest; } else o[cur]=(o[cur]?o[cur]+"\n":"")+x; }
+      return workHTML(o); }
+    return `<div class="wblocks"><div class="wb wb-main">${workLines(it.detail)}</div></div>`; }
+  return "";
+}
+function workPreview(it){ const t=it.main||it.detail||""; return String(t).split(/\n+/).map(x=>x.replace(/^(Escalfament|Bloc principal|Final|Notes)\s*:\s*/i,"").trim()).filter(Boolean).slice(0,2).join(" · "); }
+
 /* ---------------- estat i fitxa dels entrenos planificats ---------------- */
 const PST={full:["100 %","var(--green)","✓"],partial:["A mitges","var(--yellow)","½"],none:["No fet","var(--red)","✕"]};
 function dayMatches(date){
@@ -1709,11 +1747,11 @@ function sheetPlanItem(date,idx){
   const {it,m}=r, S=itemStatus(date,it,m), [lab,col]=stInfo(S.k);
   sheetState={kind:"planItem",date,idx};
   let h=sheetHead(it.title||it.disc, fmtLong(date));
-  h+=`<div class="row" style="gap:10px;margin-top:12px">${discIcon(it.disc)}<div style="flex:1;min-width:0"><b>${esc(it.disc)}</b><div class="small mut">${it.min?fmtMinH(it.min)+" previstos":"Sense durada"}${m?` · fet ${fmtMinH(m.min||0)}`:""}</div></div><span class="pill" style="color:${col}">${stBadge(S.k,16)} ${lab}${S.manual?"":(PST[S.k]?" · auto":"")}</span></div>`;
-  if(it.detail) h+=`<h2 style="margin-top:18px">Entreno</h2><div class="card" style="white-space:pre-line;line-height:1.5">${esc(it.detail)}</div>`;
+  h+=`<div class="row" style="gap:10px;margin-top:12px">${discIcon(it.disc)}<div style="flex:1;min-width:0"><b>${esc(it.disc)}</b><div class="small mut">${it.min?fmtMinH(it.min)+" previstos":"Sense durada"}${m?` · fet ${fmtMinH(m.min||0)}`:""}</div></div><span class="dot" style="width:14px;height:14px;background:${col};flex:none" title="${esc(lab)}"></span></div>`;
+  { const w=workHTML(it); if(w) h+=`<h2 style="margin-top:18px">Entreno</h2>`+w; }
   h+=`<h2 style="margin-top:18px">Compliment</h2><div class="grid3" style="gap:8px">${Object.entries(PST).map(([k,[l,c,g]])=>`<button class="btn" data-act="setPst" data-k="${k}" style="flex-direction:column;gap:4px;padding:10px 4px;${S.k===k?`background:${c};color:#0A0A0A`:`border:1px solid ${c};color:${c};background:transparent`}"><span style="font-size:18px">${g}</span><span style="font-size:12px">${l}</span></button>`).join("")}</div>`;
   h+=`<div class="small mut" style="margin-top:6px">${S.manual?`Marcat a mà. <button class="pill" data-act="setPst" data-k="">Tornar a automàtic</button>`:"Es calcula sol: verd si s'ha fet almenys el 85 % del temps previst, taronja si menys, vermell si el dia ha passat sense fer-lo."}</div>`;
-  h+=zonesFor(it.disc,(it.title||"")+" "+(it.detail||""));
+  h+=zonesFor(it.disc,(it.title||"")+" "+(it.detail||"")+" "+BLK.map(([k])=>it[k]||"").join(" "));
   if(m){ h+=`<h2 style="margin-top:18px">Activitat feta</h2>`+sessRow(m).replace('data-act="editSess"','data-act="openSess"');
     if(m.source==="garmin"&&!m.pending) h+=`<button class="btn pri block" style="margin-top:10px" data-act="actDetail" data-id="${esc(m.id)}">📈 Gràfics de FC, ritme i splits</button>`; }
   h+=`<button class="btn ghost block" style="margin-top:10px" data-act="editDay" data-date="${date}">Editar el pla del dia</button>`;
@@ -1748,7 +1786,7 @@ function vDayPlan(){
   h+=`<div class="stack" style="margin-top:10px">`;
   if(!items.length) h+=`<div class="empty">${st.dayplan[sel]?"Dia de descans":"Res planificat aquest dia."}${note?`<div class="small" style="margin-top:6px">${esc(note)}</div>`:""}</div>`;
   else {
-    h+=dayMatches(sel).map(({it:t,idx,m})=>{ const S=itemStatus(sel,t,m), [lab,col]=stInfo(S.k); return `<button class="card" data-act="planItem" data-date="${sel}" data-i="${idx}" style="padding:12px;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border-left:4px solid ${col};border-radius:0 14px 14px 0">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}</b><span class="small mut num" style="white-space:nowrap">${t.min?fmtMinH(t.min):""}</span></div>${t.detail?`<div class="small mut" style="margin-top:4px;white-space:pre-line;max-height:4.4em;overflow:hidden">${esc(t.detail)}</div>`:""}<div class="small mut" style="margin-top:6px">Toca per veure ritmes i FC ›</div></div></button>`; }).join("");
+    h+=dayMatches(sel).map(({it:t,idx,m})=>{ const S=itemStatus(sel,t,m), [lab,col]=stInfo(S.k); return `<button class="card" data-act="planItem" data-date="${sel}" data-i="${idx}" style="padding:12px;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border-left:4px solid ${col};border-radius:0 14px 14px 0">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}</b><span class="small mut num" style="white-space:nowrap">${t.min?fmtMinH(t.min):""}</span></div>${workPreview(t)?`<div class="small mut" style="margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(workPreview(t))}</div>`:""}<div class="small mut" style="margin-top:6px">Toca per veure ritmes i FC ›</div></div></button>`; }).join("");
     if(note) h+=`<div class="note" style="margin:0 2px">${esc(note)}</div>`;
   }
   return h+`</div>`;
@@ -1761,17 +1799,19 @@ function sheetDay(date){
   const tO=st.isCoach?tplOptions():"";
   items.forEach((t,i)=>{ h+=`<div class="card" style="margin-top:12px;padding:12px;background:var(--card)">${tO?`<div class="row" style="gap:6px;margin-bottom:8px"><select class="in-t" data-tpl="${i}" style="flex:1">${tO}</select><button type="button" class="btn ghost" style="padding:8px 10px;font-size:12px;flex:none" data-act="cTplFromDay" data-i="${i}" title="Desa com a plantilla">☆ Desa</button></div>`:st.isCoach?`<div style="text-align:right;margin-bottom:6px"><button type="button" class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="cTplFromDay" data-i="${i}">☆ Desa com a plantilla</button></div>`:""}<div class="f2"><div class="field" style="margin-top:0"><label for="d-disc-${i}">Sessió ${i+1}</label><select class="in-t" id="d-disc-${i}"><option value="">—</option>${DISC.map(x=>`<option ${t.disc===x?"selected":""}>${x}</option>`).join("")}</select></div><div class="field" style="margin-top:0"><label for="d-min-${i}">Minuts</label><input class="in-t" id="d-min-${i}" type="number" inputmode="numeric" min="0" max="900" value="${t.min??""}"></div></div>
     <div class="field"><label for="d-title-${i}">Títol</label><input class="in-t" id="d-title-${i}" maxlength="60" value="${esc(t.title||"")}" placeholder="Rodatge suau 10 km"></div>
-    <div class="field"><label for="d-det-${i}">Detall</label><textarea class="in-t" id="d-det-${i}" rows="3" maxlength="400" placeholder="Escalfament, bloc principal, ritmes…">${esc(t.detail||"")}</textarea></div></div>`; });
+    ${(()=>{ const b=hasBlocks(t)?t:{main:t.detail||""}; const ph={warm:"10′ suau + 4 rectes",main:"5×1 km a 3:55/km\nrec. 2′ trot",cool:"10′ suau",notes:"Pla i recte · beu cada 20′"}; return BLK.map(([k,l,ic])=>`<div class="field"><label for="d-${k}-${i}">${ic} ${l}</label><textarea class="in-t" id="d-${k}-${i}" rows="${k==="main"?3:1}" maxlength="400" placeholder="${ph[k]}">${esc(b[k]||"")}</textarea></div>`).join(""); })()}</div>`; });
+  h+=`<div class="note">Un pas per línia. Ritmes (4:00/km), zones (Z2) i RPE es ressalten sols.</div>`;
   h+=`<div class="field"><label for="d-note">Nota del dia</label><input class="in-t" id="d-note" maxlength="120" value="${esc(ex.note||"")}" placeholder="Pista amb l'equip, descans…"></div>
   <div class="err" id="d-err"></div><button class="btn pri block" data-act="saveDay">Guardar</button>${st.dayplan[date]?delButton():""}`;
-  openSheet(h, root=>{ root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-det-",t.detail); set("d-min-",t.min); sel.value=""; })); });
+  openSheet(h, root=>{ root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-min-",t.min); if(hasBlocks(t)){ for(const [k] of BLK) set("d-"+k+"-",t[k]); } else { set("d-warm-",""); set("d-main-",t.detail); set("d-cool-",""); set("d-notes-",""); } sel.value=""; })); });
 }
 function saveDay(){
   const root=document.querySelector(".sheet"), g=i=>root.querySelector("#"+i).value.trim(), err=root.querySelector("#d-err"), items=[];
-  for(let i=0;i<4;i++){ const disc=g("d-disc-"+i), title=g("d-title-"+i), detail=g("d-det-"+i), min=num(g("d-min-"+i));
-    if(!disc){ if(title||detail){ err.textContent=`Tria la disciplina de la sessió ${i+1}.`; return; } continue; }
+  const prevIts=dayItems(sheetState.date);
+  for(let i=0;i<4;i++){ const disc=g("d-disc-"+i), title=g("d-title-"+i), min=num(g("d-min-"+i)), b={}; for(const [k] of BLK) b[k]=g(`d-${k}-${i}`);
+    if(!disc){ if(title||BLK.some(([k])=>b[k])){ err.textContent=`Tria la disciplina de la sessió ${i+1}.`; return; } continue; }
     if(min!=null&&(min<0||min>900)){ err.textContent=`Revisa els minuts de la sessió ${i+1}.`; return; }
-    items.push({disc,title,detail,min}); }
+    const it={disc,title,min,...b,detail:composeDetail(b)}; const old=prevIts[i]; if(old&&old.status&&old.disc===disc) it.status=old.status; items.push(it); }
   const date=sheetState.date; closeSheet(); write("dayplan",date,{items,note:g("d-note")}); toast("Pla del dia guardat");
 }
 
@@ -1932,7 +1972,7 @@ document.addEventListener("click", e=>{
     case "cLibPlan": sheetLibPlan(el.dataset.src,el.dataset.id); break;
     case "cLibPlanGo": doLibPlan(); break;
     case "cLibSave": { const w=libGet("lib",el.dataset.id); if(w){ tplSave(newId(),{...w}).then(()=>{ toast("Desada a les teves plantilles"); render(); }); } break; }
-    case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } tplSave(newId(),{disc,title,detail:g("d-det-"),min:num(g("d-min-"))}); toast("Desada com a plantilla"); break; }
+    case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } const b={}; for(const [k] of BLK) b[k]=g("d-"+k+"-"); tplSave(newId(),{disc,title,...b,detail:composeDetail(b),min:num(g("d-min-"))}); toast("Desada com a plantilla"); break; }
     case "editZones": if(st.viewUid){ toast("Els llindars els edita l'atleta des del seu compte."); break; } sheetZones(); break;
     case "saveZones": saveZones(); break;
     case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
