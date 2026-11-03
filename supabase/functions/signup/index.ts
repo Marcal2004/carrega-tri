@@ -22,6 +22,8 @@ Deno.serve(async (req) => {
     if (!/^[A-Z0-9]{4,12}$/.test(code)) return json({ error: "code" }, 400);
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 120) return json({ error: "email" }, 400);
     if (password.length < 6 || password.length > 72) return json({ error: "password" }, 400);
+    if (body.consent !== true) return json({ error: "consent" }, 400);
+    const consentV = String(body.consentV || "").slice(0, 20);
 
     const A = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
@@ -41,6 +43,8 @@ Deno.serve(async (req) => {
       .eq("code", code).is("used_by", null).select("code");
     if (!used || !used.length) { await A.auth.admin.deleteUser(uid); return json({ error: "code" }, 403); }
     await A.from("coach_links").insert({ coach_id: inv.coach_id, athlete_id: uid, athlete_email: email });
+    // Registre del consentiment RGPD (data i versió de la política acceptada)
+    await A.from("docs").insert({ user_id: uid, coll: "profile", id: "profile", data: { consent: { v: consentV, at: new Date().toISOString() } } });
 
     return json({ ok: true });
   } catch (e) {

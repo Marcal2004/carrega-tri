@@ -78,6 +78,23 @@ Deno.serve(async (req) => {
       return json(await storeFor(uid, iid, key));
     }
 
+    // Enviar el pla de dies concrets al calendari d'intervals.icu (i d'allà al rellotge)
+    if (body.action === "push") {
+      const uid = typeof body.uid === "string" && body.uid ? body.uid : user.id;
+      const A = admin();
+      if (uid !== user.id) {
+        const { data: ok } = await A.from("coach_links").select("athlete_id").eq("coach_id", user.id).eq("athlete_id", uid).maybeSingle();
+        if (!ok) return json({ error: "forbidden" }, 403);
+      }
+      let iid = "";
+      const { data: ln } = await A.from("coach_links").select("intervals_id").eq("athlete_id", uid).not("intervals_id", "is", null).limit(1);
+      if (ln && ln[0]) iid = String(ln[0].intervals_id);
+      if (!iid && uid === user.id && isOwner) iid = Deno.env.get("INTERVALS_ATHLETE_ID") || "";
+      if (!/^i\d+$/.test(iid)) return json({ error: "nolink" }, 403);
+      const dates = (Array.isArray(body.dates) ? body.dates : []).filter(isDate).slice(0, 14);
+      return json(await pushDays(uid, iid, dates, key));
+    }
+
     if (typeof body.ath === "string" && body.ath) {
       if (!allowed.has(body.ath)) return json({ error: "forbidden" }, 403);
       ath = body.ath;
@@ -215,4 +232,47 @@ async function storeFor(uid: string, iid: string, key: string) {
   }
   for (let i = 0; i < up.length; i += 200) { const { error } = await A.from("docs").upsert(up.slice(i, i + 200)); if (error) throw new Error(error.message); }
   return { added, wellness: wn };
+}
+
+// ---------- enviar al rellotge ----------
+const EV_TYPE: Record<string, string> = { Carrera: "Run", Ciclisme: "Ride", "Natació": "Swim", "Força": "WeightTraining" };
+const BLK_L: [string, string][] = [["warm", "Escalfament"], ["main", "Bloc principal"], ["cool", "Final"], ["notes", "Notes"]];
+function eventDesc(it: any) {
+  const human = BLK_L.some(([k]) => it[k]) ? BLK_L.filter(([k]) => it[k]).map(([k, l]) => `${l}: ${it[k]}`).join("\n") : String(it.detail || "");
+  const watch = String(it.watch || "").trim();
+  // El text descriptiu no ha de semblar un pas (línies amb "-" o "4x"): es neteja perquè intervals no el converteixi en passos
+  const safe = human.split("\n").map((x) => x.replace(/^\s*-\s*/, "• ").replace(/^(\s*)(\d+)\s*[xX](?=\s|\d|$)/, "$1$2×")).join("\n");
+  if (watch) return safe ? `${safe}\n\n${watch}` : watch;
+  // Sense format de rellotge: un sol pas amb la durada prevista i el text com a notes
+  return safe + (it.min ? `\n\n- ${Math.round(it.min)}m` : "");
+}
+async function pushDays(uid: string, iid: string, dates: string[], key: string) {
+  const A = admin(), auth = "Basic " + btoa("API_KEY:" + key);
+  const call = async (method: string, path: string, payload?: unknown) => {
+    const r = await fetch(`https://intervals.icu/api/v1/athlete/${iid}/${path}`, { method, headers: { Authorization: auth, "Content-Type": "application/json" }, body: payload ? JSON.stringify(payload) : undefined });
+    if (!r.ok && !(method === "DELETE" && r.status === 404)) throw new Error(`intervals ${r.status}`);
+    return method === "DELETE" ? null : r.json();
+  };
+  const { data: rows } = await A.from("docs").select("coll,id,data").eq("user_id", uid).in("coll", ["dayplan", "push"]).in("id", dates);
+  const plan: Record<string, any> = {}, pushed: Record<string, string[]> = {};
+  for (const r of rows || []) { if (r.coll === "dayplan") plan[r.id] = r.data; else pushed[r.id] = Array.isArray(r.data?.ids) ? r.data.ids : []; }
+  const now = new Date().toISOString(), out: Record<string, number> = {}, up: any[] = [];
+  for (const d of dates) {
+    const doc = plan[d], items = Array.isArray(doc?.items) ? doc.items : [], keep: string[] = [];
+    let n = 0;
+    for (const it of items) {
+      if (!it || !EV_TYPE[it.disc]) continue;
+      const ev = { category: "WORKOUT", start_date_local: `${d}T00:00:00`, type: EV_TYPE[it.disc], name: it.title || it.disc, description: eventDesc(it), moving_time: it.min ? Math.round(it.min * 60) : undefined };
+      let id = it.iev ? String(it.iev) : "";
+      try { if (id) await call("PUT", `events/${id}`, ev); else { const r: any = await call("POST", "events", ev); id = String(r.id); } }
+      catch (_) { const r: any = await call("POST", "events", ev); id = String(r.id); }
+      it.iev = id; keep.push(id); n++;
+    }
+    for (const old of pushed[d] || []) if (!keep.includes(old)) { try { await call("DELETE", `events/${old}`); } catch (_) { /* ja no hi era */ } }
+    if (doc) up.push({ user_id: uid, coll: "dayplan", id: d, data: { ...doc, items, pushedAt: now }, updated_at: now });
+    up.push({ user_id: uid, coll: "push", id: d, data: { ids: keep, at: now }, updated_at: now });
+    out[d] = n;
+  }
+  if (up.length) { const { error } = await A.from("docs").upsert(up); if (error) throw new Error(error.message); }
+  return { ok: true, sent: out };
 }
