@@ -324,6 +324,7 @@ async function write(kind, id, data){
     if (kind==="profile") await refs.profile.set(st.profile);
     else if (data===null) await refs.col(kind).doc(id).delete();
     else await refs.col(kind).doc(id).set(data);
+    if (kind==="dayplan" && isDate(id) && id>=todayStr()) autoPush(id);
   }catch(e){
     toast(e && e.code==="quota_exceeded" ? "No s'ha pogut guardar: l'espai de dades és ple." : "No s'ha pogut guardar. Torna-ho a provar.");
   }
@@ -2066,7 +2067,7 @@ function sheetDay(date){
     <div class="note">Format d'intervals.icu: un pas per línia que comença per «-», amb durada (10m, 400mtr, 2km) i objectiu (% LTHR, % Pace, % FTP). «4x» repeteix els passos de sota. Si ho deixes buit, al rellotge arriba un sol pas amb els minuts i el text com a notes.</div></details></div>`; });
   h+=`<div class="note">Un pas per línia. Ritmes (4:00/km), zones (Z2) i RPE es ressalten sols.</div>`;
   h+=`<div class="field"><label for="d-note">Nota del dia</label><input class="in-t" id="d-note" maxlength="120" value="${esc(ex.note||"")}" placeholder="Pista amb l'equip, descans…"></div>
-  <div class="err" id="d-err"></div><button class="btn pri block" data-act="saveDay">Guardar</button>${watchIid()?`<button class="btn block" style="margin-top:8px" data-act="saveDaySend">⌚ Guardar i enviar al rellotge</button>`:""}${st.dayplan[date]?delButton():""}`;
+  <div class="err" id="d-err"></div><button class="btn pri block" data-act="saveDay">Guardar</button>${watchIid()?`<div class="note" style="margin-top:8px;text-align:center">⌚ En guardar, l'entreno s'envia sol al rellotge.</div>`:""}${st.dayplan[date]?delButton():""}`;
   openSheet(h, root=>{ root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-min-",t.min); if(hasBlocks(t)){ for(const [k] of BLK) set("d-"+k+"-",t[k]); } else { set("d-warm-",""); set("d-main-",t.detail); set("d-cool-",""); set("d-notes-",""); } const wt=t.watch||(/^\s*-\s/m.test(t.detail||"")?t.detail:""); set("d-watch-",wt); if(wt){ const dt=root.querySelector("#d-watch-"+i)?.closest("details"); if(dt) dt.open=true; } sel.value=""; })); });
 }
 function saveDay(){
@@ -2076,19 +2077,32 @@ function saveDay(){
     if(!disc){ if(title||BLK.some(([k])=>b[k])){ err.textContent=`Tria la disciplina de la sessió ${i+1}.`; return; } continue; }
     if(min!=null&&(min<0||min>900)){ err.textContent=`Revisa els minuts de la sessió ${i+1}.`; return; }
     const it={disc,title,min,...b,detail:composeDetail(b)}; const w=g("d-watch-"+i); if(w) it.watch=w; const old=prevIts[i]; if(old&&old.status&&old.disc===disc) it.status=old.status; if(old&&old.iev&&old.disc===disc) it.iev=old.iev; items.push(it); }
-  const date=sheetState.date, send=sheetState.send; closeSheet();
-  write("dayplan",date,{items,note:g("d-note")}).then(()=>{ if(send) pushToWatch([date]); });
-  if(!send) toast("Pla del dia guardat");
+  const date=sheetState.date; closeSheet();
+  write("dayplan",date,{items,note:g("d-note")});
+  toast(watchIid()&&date>=todayStr()?"Pla guardat · s'envia al rellotge":"Pla del dia guardat");
 }
 function watchIid(){ if(st.viewUid){ return (st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||""; } return st.myLink?.intervals_id||""; }
-async function pushToWatch(dates){
-  if(!watchIid()){ toast("Aquest atleta no té el rellotge connectat a intervals.icu."); return; }
-  toast("Enviant al rellotge…");
-  const {data,error}=await sb.functions.invoke("intervals-sync",{body:{action:"push",uid:curUid(),dates}});
+// Enviament automàtic: cada canvi al pla d'avui o de dies futurs es passa sol al rellotge
+const _ap={uid:null,dates:new Set(),t:null};
+function autoPush(date){
+  if(!watchIid()) return;
+  const uid=curUid(); if(_ap.uid&&_ap.uid!==uid) flushAutoPush();
+  _ap.uid=uid; _ap.dates.add(date); clearTimeout(_ap.t); _ap.t=setTimeout(flushAutoPush,1500);
+}
+function flushAutoPush(){
+  clearTimeout(_ap.t); const uid=_ap.uid, dates=[..._ap.dates]; _ap.uid=null; _ap.dates.clear();
+  if(uid&&dates.length) pushToWatch(dates,{silent:true,uid});
+}
+async function pushToWatch(dates,o={}){
+  if(!o.silent&&!watchIid()){ toast("Aquest atleta no té el rellotge connectat a intervals.icu."); return; }
+  if(!o.silent) toast("Enviant al rellotge…");
+  const uid=o.uid||curUid();
+  const {data,error}=await sb.functions.invoke("intervals-sync",{body:{action:"push",uid,dates}});
   if(error||!data?.ok){ let m="No s'ha pogut enviar al rellotge."; try{ const b=await error.context.json(); if(b.error==="nolink") m="Aquest atleta no té el rellotge connectat."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no deixa editar el calendari d'aquest atleta: t'ha d'afegir com a entrenador."; }catch(_){} toast(m); return; }
   const n=Object.values(data.sent||{}).reduce((a,b)=>a+b,0);
+  if(uid!==curUid()) return;
   try{ await loadAll(); }catch(_){}
-  render(); toast(n?`⌚ ${n} entreno${n>1?"s":""} enviat${n>1?"s":""} al rellotge`:"Calendari del rellotge actualitzat");
+  render(); if(o.silent){ if(n) toast(`⌚ Enviat al rellotge`); return; } toast(n?`⌚ ${n} entreno${n>1?"s":""} enviat${n>1?"s":""} al rellotge`:"Calendari del rellotge actualitzat");
 }
 
 function sheetMacro(id){
@@ -2230,7 +2244,6 @@ document.addEventListener("click", e=>{
     case "onbSave": onbSave(); break;
     case "onbLater": st.onbLater=true; st.mode="db"; afterOnb(); break;
     case "onbEdit": st.mode="onb"; render(); window.scrollTo(0,0); break;
-    case "saveDaySend": sheetState.send=true; saveDay(); break;
     case "pushWeek": { const ws=el.dataset.ws; pushToWatch([...Array(7)].map((_,i)=>addD(ws,i))); break; }
     case "testTab": st.testTab=el.dataset.t; render(); break;
     case "chPass": openSheet(sheetHead("Canviar contrasenya",userLabel(st.email||""))+`<div class="field"><label for="np1">Contrasenya nova</label><input class="in-t" id="np1" type="password" autocomplete="new-password" minlength="6"></div><div class="field"><label for="np2">Repeteix-la</label><input class="in-t" id="np2" type="password" autocomplete="new-password" minlength="6"></div><div class="err" id="np-err"></div><button class="btn pri block" data-act="chPassGo">Guardar</button>`); break;
