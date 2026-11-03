@@ -526,7 +526,7 @@ async function syncGarmin(manual){
     const {data,error}=await sb.functions.invoke("intervals-sync",{body:{oldest:from,newest:today}});
     if(error){
       let m="No s'ha pogut connectar amb intervals.icu.";
-      try{ const b=await error.context.json(); if(b.error==="forbidden") m="Aquest compte no pot sincronitzar (revisa OWNER_EMAIL)."; else if(b.error==="nolink") m="Garmin encara no està connectat. Demana-ho al teu entrenador."; else if(b.error==="nokey") m="Falta la clau d'intervals.icu als Secrets de Supabase."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no accepta la clau. Revisa INTERVALS_API_KEY."; }catch(_){ if(error.name==="FunctionsFetchError"||error.name==="FunctionsRelayError") m="La funció intervals-sync no està instal·lada a Supabase."; }
+      try{ const b=await error.context.json(); if(b.error==="forbidden") m="Aquest compte no pot sincronitzar (revisa OWNER_EMAIL)."; else if(b.error==="nolink") m="El rellotge encara no està connectat. Demana-ho al teu entrenador."; else if(b.error==="nokey") m="Falta la clau d'intervals.icu als Secrets de Supabase."; else if(/intervals 40[13]/.test(b.error||"")) m="intervals.icu no accepta la clau. Revisa INTERVALS_API_KEY."; }catch(_){ if(error.name==="FunctionsFetchError"||error.name==="FunctionsRelayError") m="La funció intervals-sync no està instal·lada a Supabase."; }
       throw new Error(m);
     }
     const ignored=new Set(prof().garminIgnored||[]);
@@ -567,7 +567,7 @@ async function syncGarmin(manual){
       if(numOr(r.weight)!=null && !st.weights[d]) await write("weights",d,{kg:Math.round(r.weight*10)/10,note:"Garmin"});
     }
     st.garmin={state:"ok",msg:"",last:new Date(),added,skipped,wellness:wn>0,nAct:acts.length,nWell:(data.wellness||[]).length,lastHrv};
-    if(manual||added) toast(added?`${added} activitat${added>1?"s noves":" nova"} de Garmin`:"Tot al dia amb Garmin");
+    if(manual||added) toast(added?`${added} activitat${added>1?"s noves":" nova"} del rellotge`:"Tot al dia amb el rellotge");
   }catch(e){
     st.garmin={...st.garmin,state:"error",msg:e.message||"Error de sincronització"};
     if(manual) toast(st.garmin.msg);
@@ -630,13 +630,13 @@ async function sheetDetail(id){
   const s=st.sessions[id]; if(!s) return;
   const head=sheetHead(s.desc||s.disc, fmtLong(s.date)+(s.start?" · "+new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):""))
     +`<div class="row between" style="margin-top:10px;gap:8px"><span class="small mut">${esc(s.disc)} · ${s.min||0}′${s.rpe!=null?` · RPE ${s.rpe}`:""}${!s.pending?` · ${fmtN(loadOf(s))} UA`:""}</span>${st.viewUid?"":`<button class="pill" data-act="editSessForce" data-id="${esc(id)}">✎ Editar RPE i dades</button>`}</div>`;
-  openSheet(head+`<div class="empty" style="margin-top:20px">Carregant dades de Garmin…</div>`);
+  openSheet(head+`<div class="empty" style="margin-top:20px">Carregant dades del rellotge…</div>`);
   const ath=st.viewUid?((st.athletes.find(x=>x.athlete_id===st.viewUid)||{}).intervals_id||""):"";
   const key=(ath||"me")+"|"+id;
   let a=detCache[key];
   if(!a){
     const {data,error}=await sb.functions.invoke("intervals-sync",{body:{action:"detail",ath,iid:s.iid||"",gid:s.gid||"",date:s.date,start:s.start||""}});
-    let msg=null; if(error){ msg="No s'ha pogut connectar amb intervals.icu."; try{ const b=await error.context.json(); if(b.error==="nolink") msg="Aquest compte no té Garmin connectat."; }catch(_){} }
+    let msg=null; if(error){ msg="No s'ha pogut connectar amb intervals.icu."; try{ const b=await error.context.json(); if(b.error==="nolink") msg="Aquest compte no té el rellotge connectat."; }catch(_){} }
     else if(data?.error==="notfound") msg="No s'ha trobat aquesta activitat a intervals.icu.";
     else if(data?.error) msg="No s'han pogut llegir les dades.";
     const host=document.querySelector(".sheet"); if(!host) return;
@@ -691,7 +691,7 @@ async function syncAthletes(){
 }
 async function refreshCoach(manual){
   const n=await syncAthletes(); await loadAthData(); render();
-  if(manual) toast(st.cSync==="error"?"Algunes dades de Garmin no s'han pogut actualitzar":n?`${n} activitat${n>1?"s":""} nova${n>1?"s":""}`:"Tot al dia");
+  if(manual) toast(st.cSync==="error"?"Algunes dades dels rellotges no s'han pogut actualitzar":n?`${n} activitat${n>1?"s":""} nova${n>1?"s":""}`:"Tot al dia");
 }
 async function loadAthData(){
   const ids=st.athletes.map(a=>a.athlete_id); const out={};
@@ -762,7 +762,7 @@ function vCoachPanel(){
     const hv=s.hv, rg=s.rg, vcol=hv==null||!rg?"var(--fg)":hv<rg.lo?"var(--yellow)":hv>rg.hi?"var(--blue)":"var(--green)";
     const pc=s.pl&&s.pl.load?s.wr.load/s.pl.load:null;
     h+=`<div class="card" style="padding:14px">
-      <button data-act="cOpen" data-id="${a.athlete_id}" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;color:var(--fg)">${athAvatar(a.athlete_id)}<span style="flex:1;min-width:0"><b style="display:block;font-size:17px">${esc(athName(a))}</b><span class="small mut">${(st.anote||{})[a.athlete_id]?.group?`<span class="pill" style="margin-right:6px">${esc(st.anote[a.athlete_id].group)}</span>`:""}${s.nx?`🏁 ${esc(s.nx.name)} · ${daysTo(s.nx.date)} dies`:"Sense competicions"}</span>${(st.anote||{})[a.athlete_id]?.note?`<span class="small" style="display:block;margin-top:3px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(st.anote[a.athlete_id].note)}</span>`:""}</span><span class="mut" style="font-size:22px">›</span></button>
+      <button data-act="cOpen" data-id="${a.athlete_id}" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;color:var(--fg)">${athAvatar(a.athlete_id)}<span style="flex:1;min-width:0"><b style="display:block;font-size:17px">${esc(athName(a))}</b><span class="small mut">${(st.anote||{})[a.athlete_id]?.group?`<span class="pill" style="margin-right:6px">${esc(st.anote[a.athlete_id].group)}</span>`:""}${s.nx?`🏁 ${esc(s.nx.name)} · ${daysTo(s.nx.date)} dies`:"Sense competicions"}</span><span class="small" style="display:block;margin-top:3px;color:${!a.intervals_id?"var(--mut)":DEV_PLAN[devOf(a)]===false?"var(--yellow)":"var(--green)"}">⌚ ${esc(devTxt(a))}${DEV_PLAN[devOf(a)]===false?" · sense entrenos al rellotge":""}</span>${(st.anote||{})[a.athlete_id]?.note?`<span class="small" style="display:block;margin-top:3px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(st.anote[a.athlete_id].note)}</span>`:""}</span><span class="mut" style="font-size:22px">›</span></button>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:12px">
         <div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span style="position:relative;width:52px;height:52px">${ringSvg(rp!=null?rp/100:0,rcol,52)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${rp??"–"}</span></span><span class="small mut">Recup.</span></div>
         <div class="tile" style="padding:8px 6px;text-align:center"><div class="lab">VFC</div><div class="val" style="font-size:20px;color:${vcol}">${hv??"–"}</div><div class="sub">${s.sl!=null?"son "+s.sl:"ms"}</div></div>
@@ -972,13 +972,19 @@ async function doLibPlan(){
 }
 
 /* ---------- gestió d'atletes ---------- */
+const DEVICES=["Garmin","Coros","Polar","Suunto","Wahoo","Apple Watch","Altres"];
+const DEV_PLAN={Garmin:true,Coros:true,Polar:false};
+function devOf(a){ return ((st.anote||{})[a.athlete_id]||{}).device||""; }
+function devTxt(a){ const d=devOf(a)||"Rellotge"; return a.intervals_id?`${d} ✓`:`${d} no connectat`; }
+function devPlanNote(a){ const d=devOf(a); if(!d) return ""; if(DEV_PLAN[d]===false) return "No rep entrenos al rellotge: els segueix des de l'app"; if(DEV_PLAN[d]) return "Rep els entrenos al rellotge"; return "Entrenos al rellotge: per comprovar"; }
 async function loadNotes(){ try{ const {data}=await sb.from("docs").select("id,data").eq("user_id",st.uid).eq("coll","anote"); const o={}; (data||[]).forEach(r=>o[r.id]=r.data); st.anote=o; }catch(e){ st.anote={}; } }
 function sheetManage(uid){
   const a=st.athletes.find(x=>x.athlete_id===uid); if(!a) return; const n=(st.anote||{})[uid]||{}; sheetState={kind:"manage",uid,confirm:false};
   const since=a.created_at?fmtShort(String(a.created_at).slice(0,10))+" "+String(a.created_at).slice(0,4):"–";
   let h=`<div class="row" style="gap:12px;align-items:center">${athAvatar(uid,56)}<div style="flex:1;min-width:0">${sheetHead(athName(a),"@"+userLabel(a.athlete_email||""))}</div></div>`;
-  h+=`<div class="grid3" style="margin-top:10px"><div class="tile" style="padding:10px"><div class="lab">Des de</div><div class="val" style="font-size:16px;line-height:1.6">${esc(since)}</div><div class="sub">vinculat</div></div><div class="tile" style="padding:10px"><div class="lab">Garmin</div><div class="val" style="font-size:16px;line-height:1.6;color:${a.intervals_id?"var(--green)":"var(--mut)"}">${a.intervals_id?"✓":"No"}</div><div class="sub">${esc(a.intervals_id||"sense ID")}</div></div><div class="tile" style="padding:10px"><div class="lab">Grup</div><div class="val" style="font-size:16px;line-height:1.6">${esc(n.group||"–")}</div><div class="sub">etiqueta</div></div></div>`;
-  h+=`<div class="f2"><div class="field"><label for="m-group">Grup / etiqueta</label><input class="in-t" id="m-group" maxlength="24" value="${esc(n.group||"")}" placeholder="Triatló, Gimnàs, Club…" list="m-groups"><datalist id="m-groups">${[...new Set(Object.values(st.anote||{}).map(x=>x.group).filter(Boolean))].map(g=>`<option value="${esc(g)}">`).join("")}</datalist></div><div class="field"><label for="m-int">ID d'intervals.icu</label><input class="in-t" id="m-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"></div></div>
+  h+=`<div class="grid3" style="margin-top:10px"><div class="tile" style="padding:10px"><div class="lab">Des de</div><div class="val" style="font-size:16px;line-height:1.6">${esc(since)}</div><div class="sub">vinculat</div></div><div class="tile" style="padding:10px"><div class="lab">Rellotge</div><div class="val" style="font-size:16px;line-height:1.6;color:${a.intervals_id?"var(--green)":"var(--mut)"}">${esc(n.device||"–")} ${a.intervals_id?"✓":""}</div><div class="sub">${esc(a.intervals_id||"no connectat")}</div></div><div class="tile" style="padding:10px"><div class="lab">Grup</div><div class="val" style="font-size:16px;line-height:1.6">${esc(n.group||"–")}</div><div class="sub">etiqueta</div></div></div>`;
+  h+=`<div class="field"><label for="m-dev">Marca del rellotge</label><select class="in-t" id="m-dev"><option value="">–</option>${DEVICES.map(d=>`<option ${n.device===d?"selected":""}>${d}</option>`).join("")}</select><div class="note">${n.device?esc(devPlanNote({athlete_id:uid})):"Garmin i Coros reben els entrenos al rellotge; Polar no (l'atleta els segueix des de l'app). Totes les marques envien les activitats si estan connectades a intervals.icu."}</div></div>
+  <div class="f2"><div class="field"><label for="m-group">Grup / etiqueta</label><input class="in-t" id="m-group" maxlength="24" value="${esc(n.group||"")}" placeholder="Triatló, Gimnàs, Club…" list="m-groups"><datalist id="m-groups">${[...new Set(Object.values(st.anote||{}).map(x=>x.group).filter(Boolean))].map(g=>`<option value="${esc(g)}">`).join("")}</datalist></div><div class="field"><label for="m-int">ID d'intervals.icu</label><input class="in-t" id="m-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"></div></div>
   <div class="field"><label for="m-note">Notes de l'entrenador</label><textarea class="in-t" id="m-note" rows="4" maxlength="600" placeholder="Lesions, objectius, disponibilitat, material…">${esc(n.note||"")}</textarea><div class="note">Només les veus tu.</div></div>
   <div class="err" id="m-err"></div><button class="btn pri block" data-act="cManageSave">Guardar</button>
   <div class="row" style="gap:8px;margin-top:8px"><button class="btn" style="flex:1" data-act="cOpen" data-id="${uid}">Veure fitxa</button><button class="btn" style="flex:1" data-act="cPlanAth" data-id="${uid}">Planificar</button></div>
@@ -989,7 +995,7 @@ function sheetManage(uid){
 async function manageSave(){
   const uid=sheetState.uid, g=i=>document.querySelector(i).value.trim(), err=document.querySelector("#m-err"), iv=g("#m-int").toLowerCase();
   if(iv&&!/^i\d+$/.test(iv)){ err.textContent="L'ID d'intervals ha de ser tipus i123456."; return; }
-  const note={group:g("#m-group"),note:g("#m-note")};
+  const note={group:g("#m-group"),note:g("#m-note"),device:document.querySelector("#m-dev").value||""};
   const r1_=await sb.from("docs").upsert({user_id:st.uid,coll:"anote",id:uid,data:note,updated_at:new Date().toISOString()});
   const r2_=await sb.from("coach_links").update({intervals_id:iv||null}).eq("coach_id",st.uid).eq("athlete_id",uid);
   if(r1_.error||r2_.error){ err.textContent="No s'ha pogut guardar."; return; }
@@ -1010,7 +1016,7 @@ function vCoachAthletes(){
   if(!st.athletes.length) h+=`<div class="empty">Encara no en tens cap.</div>`;
   for(const g of groups){ const L=st.athletes.filter(a=>((st.anote||{})[a.athlete_id]?.group||"Sense grup")===g);
     if(groups.length>1) h+=`<div class="eyebrow" style="margin:12px 2px 6px">${esc(g)} · ${L.length}</div>`;
-    h+=`<div class="stack">${L.map(a=>`<button class="sess" data-act="cManage" data-id="${a.athlete_id}">${athAvatar(a.athlete_id,40)}<span class="t"><span class="t1">${esc(athName(a))}</span><span class="t2">@${esc(userLabel(a.athlete_email||""))} · ${a.intervals_id?"Garmin ✓":"sense Garmin"}${(st.anote||{})[a.athlete_id]?.note?" · 📝":""}</span></span><span class="mut">Gestionar ›</span></button>`).join("")}</div>`; }
+    h+=`<div class="stack">${L.map(a=>`<button class="sess" data-act="cManage" data-id="${a.athlete_id}">${athAvatar(a.athlete_id,40)}<span class="t"><span class="t1">${esc(athName(a))}</span><span class="t2">@${esc(userLabel(a.athlete_email||""))} · ${devTxt(a)}${(st.anote||{})[a.athlete_id]?.note?" · 📝":""}</span></span><span class="mut">Gestionar ›</span></button>`).join("")}</div>`; }
   h+=`<button class="btn pri block" style="margin-top:10px" data-act="invite">+ Convidar atleta</button>`;
   return h;
 }
@@ -1072,7 +1078,7 @@ function vAvui(){
   const pendAll=sessList().filter(s=>s.pending).sort((a,b)=>a.date<b.date?1:-1), pendToday=pendAll.filter(s=>s.date===d), pend=st.pendAll?pendAll:pendToday;
   if(pendAll.length){
     h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">Per revisar <span class="pill" style="color:var(--yellow)">${pend.length}</span></h2>${pendAll.length>pendToday.length?`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="pendAll">${st.pendAll?"Només avui":`Veure totes (${pendAll.length})`}</button>`:""}</div>`;
-    h+= pend.length ? `<p class="note" style="margin:4px 0 10px">Activitats importades de Garmin. Posa-hi la RPE perquè comptin a la càrrega.</p><div class="stack">${pend.slice(0,st.pendAll?30:8).map(s=>`<button class="sess" data-act="editSess" data-id="${esc(s.id)}" style="border:1px solid #3a3313">${discIcon(s.disc)}<span class="t"><span class="t1">${esc(s.desc||s.disc)}</span><span class="t2">${esc(fmtShort(s.date))} · ${esc(sessDetail(s))}</span></span><span class="pill" style="background:var(--brand);color:var(--on-brand)">RPE</span></button>`).join("")}</div>` : `<div class="empty" style="margin-top:10px">Cap activitat d'avui per revisar. N'hi ha ${pendAll.length} d'altres dies.</div>`;
+    h+= pend.length ? `<p class="note" style="margin:4px 0 10px">Activitats importades del rellotge. Posa-hi la RPE perquè comptin a la càrrega.</p><div class="stack">${pend.slice(0,st.pendAll?30:8).map(s=>`<button class="sess" data-act="editSess" data-id="${esc(s.id)}" style="border:1px solid #3a3313">${discIcon(s.disc)}<span class="t"><span class="t1">${esc(s.desc||s.disc)}</span><span class="t2">${esc(fmtShort(s.date))} · ${esc(sessDetail(s))}</span></span><span class="pill" style="background:var(--brand);color:var(--on-brand)">RPE</span></button>`).join("")}</div>` : `<div class="empty" style="margin-top:10px">Cap activitat d'avui per revisar. N'hi ha ${pendAll.length} d'altres dies.</div>`;
   }
   // last 7 days strip
   h+=`<h2>Últims 7 dies</h2><div class="card"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;align-items:end;height:110px">`;
@@ -1374,13 +1380,13 @@ function vProfile(){
   const lt=tests[0];
   h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","zfc","Zones de FC",p.lthr?`LTHR ${p.lthr}${p.hrMax?" · màx "+p.hrMax:""} ppm`:"Posa la teva LTHR")}${row("plaTab","zftp","FTP i zones de potència",p.ftp?`FTP ${p.ftp} W${lastKg()?" · "+(p.ftp/lastKg()).toFixed(2)+" W/kg":""}`:"Posa el teu FTP")}${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
   if (st.viewUid){
-    h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense Garmin connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari, macrocicles i competicions). Les sessions i els controls del matí són seus.</p>`;
+    h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense rellotge connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari, macrocicles i competicions). Les sessions i els controls del matí són seus.</p>`;
     return h;
   }
   if (st.isCoach){
-    h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("viewAth","",esc(a.name||a.athlete_email||"Atleta"),(a.name?esc(a.athlete_email||"")+" · ":"")+(a.intervals_id?"Garmin ✓":"sense Garmin"),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
+    h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("viewAth","",esc(a.name||a.athlete_email||"Atleta"),(a.name?esc(a.athlete_email||"")+" · ":"")+devTxt(a),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
   }
-  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar Garmin",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${row("chPass","","Canviar contrasenya","")}${row("pushCfg","","Recordatori del qüestionari",st.push.on?`Activat · ${pad(st.push.hour)}:00`:"Desactivat")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
+  h+=`<h2>Configuració</h2><div class="plist">${row("settings","","Dades personals i VFC","Nom, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("plaTab","coef","Coeficients","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("sync","","Sincronitzar rellotge",st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu")}${row("chPass","","Canviar contrasenya","")}${row("pushCfg","","Recordatori del qüestionari",st.push.on?`Activat · ${pad(st.push.hour)}:00`:"Desactivat")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
   return h;
 }
 
@@ -1488,7 +1494,7 @@ function sheetMorning(date){
   h+=`<div class="field"><label for="m-date">Data</label><input class="in-t" id="m-date" type="date" value="${date}"></div>
   <div class="f2"><div class="field"><label for="m-sleep">1 · Puntuació de son</label><input class="in-t" id="m-sleep" type="number" inputmode="numeric" min="0" max="100" step="1" value="${ex.sleepScore??gm.sleepScore??""}" placeholder="0-100"></div>
   <div class="field"><label for="m-rhr">2 · FC en repòs (ppm)</label><input class="in-t" id="m-rhr" type="number" inputmode="numeric" min="25" max="120" step="1" value="${ex.rhr??gm.rhr??""}" placeholder="48"></div></div>
-  <div class="note">Valors en llevar-te, de Garmin o Bevel. La VFC s'importa sola de Garmin${(ex.hrv??gm.hrvG)!=null?` (avui ${ex.hrv??gm.hrvG} ms)`:""}.</div>
+  <div class="note">Valors en llevar-te, del rellotge. La VFC s'importa sola del rellotge${(ex.hrv??gm.hrvG)!=null?` (avui ${ex.hrv??gm.hrvG} ms)`:""}.</div>
   <div class="field"><label for="m-kg">3 · Pes (kg)</label><input class="in-t" id="m-kg" type="number" inputmode="decimal" step="0.1" min="30" max="250" value="${st.weights[date]?.kg??""}" placeholder="En dejú, després d'anar al lavabo"></div>`;
   for (const [k,l,lo,hi] of Q_ITEMS) h+=`<div class="field"><span class="flab">${l}</span>${pickRow(k,5,sheetState[k])}<div class="row between note" style="margin-top:2px"><span>1 · ${lo}</span><span>5 · ${hi}</span></div></div>`;
   h+=`<div class="preview"><span class="mut">Recuperació</span><span class="big" id="m-prev">–</span></div><div class="err" id="m-err"></div>
@@ -1516,7 +1522,7 @@ function sheetSession(id, date){
   const body = () => {
     const s=sheetState, d=s.disc;
     let h=sheetHead(id?(s.pending?"Revisar activitat":"Editar sessió"):"Nova sessió");
-    if (s.source==="garmin") h+=`<div class="banner" style="margin:12px 0 0">Importada de Garmin${s.start?` · ${new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}`:""}. ${s.pending?"Comprova les dades i posa la RPE.":""}</div>`;
+    if (s.source==="garmin") h+=`<div class="banner" style="margin:12px 0 0">Importada del rellotge${s.start?` · ${new Date(s.start).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}`:""}. ${s.pending?"Comprova les dades i posa la RPE.":""}</div>`;
     if (s.source==="garmin" && id) h+=`<button class="btn block" style="margin-top:10px" data-act="actDetail" data-id="${esc(id)}">📍 Veure detall (mapa, FC, zones, voltes)</button>`;
     h+=`<div class="field"><span class="flab">Disciplina</span><div class="disc-pick">${DISC.map(x=>`<button type="button" data-disc="${x}" class="${d===x?"on":""}" style="${d===x?`border-color:${DHEX[x]};background:color-mix(in srgb, ${DHEX[x]} 16%, var(--card))`:""}"><span style="color:${DHEX[x]}">${ICON[x]}</span>${x}</button>`).join("")}</div></div>
     <div class="f2"><div class="field"><label for="s-date">Data</label><input class="in-t" id="s-date" type="date" value="${esc(s.date)}"></div><div class="field"><label for="s-min">Minuts</label><input class="in-t" id="s-min" type="number" inputmode="numeric" min="1" max="900" value="${s.min??""}" placeholder="60"></div></div>
@@ -1878,7 +1884,7 @@ function sheetSettings(){
   let h=sheetHead("Ajustos");
   h+=`<div class="field"><label for="st-name">Nom</label><input class="in-t" id="st-name" maxlength="30" value="${esc(p.name||"")}" placeholder="El teu nom"></div>
   <div class="field"><label for="st-start">Inici de temporada (dilluns)</label><input class="in-t" id="st-start" type="date" value="${esc(p.start||monday(todayStr()))}"><div class="note">La setmana 1 comença aquest dilluns.</div></div>
-  <div class="f2"><div class="field"><label for="st-vlo">VFC normal · mín. (ms)</label><input class="in-t" id="st-vlo" type="number" inputmode="numeric" value="${p.hrvLo??""}" placeholder="63"></div><div class="field"><label for="st-vhi">VFC normal · màx. (ms)</label><input class="in-t" id="st-vhi" type="number" inputmode="numeric" value="${p.hrvHi??""}" placeholder="75"></div></div><div class="note">El rang de Garmin («Estat de la VFC»). Si el deixes buit, es calcula amb els teus últims 7 dies.</div>
+  <div class="f2"><div class="field"><label for="st-vlo">VFC normal · mín. (ms)</label><input class="in-t" id="st-vlo" type="number" inputmode="numeric" value="${p.hrvLo??""}" placeholder="63"></div><div class="field"><label for="st-vhi">VFC normal · màx. (ms)</label><input class="in-t" id="st-vhi" type="number" inputmode="numeric" value="${p.hrvHi??""}" placeholder="75"></div></div><div class="note">El rang del teu rellotge (a Garmin, «Estat de la VFC»). Si el deixes buit, es calcula amb els teus últims 7 dies.</div>
   <div class="f2"><div class="field"><label for="st-h">Alçada (m)</label><input class="in-t" id="st-h" type="number" inputmode="decimal" step="0.01" value="${p.height??""}" placeholder="1.75"></div><div class="field"><label for="st-t">Pes objectiu (kg)</label><input class="in-t" id="st-t" type="number" inputmode="decimal" step="0.1" value="${p.target??""}"></div></div>
   <div class="err" id="st-err"></div><button class="btn pri block" data-act="saveSettings">Guardar</button>
   <h2 style="margin-top:26px">Exportar</h2><p class="note">Descarrega totes les dades en un Excel (sessions, control diari, pes, pla, macrocicles i tests).</p><button class="btn block" style="margin-top:8px" data-act="export">Exportar a Excel</button>`;
