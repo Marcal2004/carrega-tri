@@ -1350,7 +1350,7 @@ function vPla(){
     h+= list.length ? list.map(m=>{ const wks=Math.max(0,Math.round((diffD(m.end,m.start)+1)/7)); return `<button class="wkrow" data-act="editMacro" data-id="${esc(m.id)}"><span class="stripe" style="background:${m.color}"></span><span class="wkn" style="font-size:16px;color:${m.color}">${wks}<span class="small mut" style="display:block;font-size:10px">SETM.</span></span><span style="min-width:0"><span style="display:block;font-weight:600">${esc(m.name)}</span><span class="small mut">${fmtShort(m.start)} – ${fmtShort(m.end)}</span></span><span class="small" style="text-align:right">${m.race?`${esc(m.race)}<span class="mut" style="display:block">${isDate(m.raceDate)?fmtShort(m.raceDate):""}</span>`:""}</span></button>`; }).join("") : `<div class="empty">Encara no hi ha macrocicles. Crea'n un per a cada competició objectiu.</div>`;
     h+=`</div>`;
   } else if (t==="tests"){
-    h+=vTests();
+    h+=vTestsWrap();
   } else if (t==="pes"){
     h+=vPes();
   } else if (t==="zfc"){
@@ -1425,7 +1425,7 @@ function render(){
   renderTabs();
   if (v==="grafics" && (st.grTab||"cal")==="anal") drawCharts();
   if (v==="pla" && st.plaTab==="pes") drawWeight("cw");
-  if (v==="pla" && st.plaTab==="tests") drawTests();
+  if (v==="pla" && st.plaTab==="tests" && (st.testTab||"res")==="res") drawTests();
 }
 function renderTabs(){
   const t=st.view, tabs=[["avui","Avui"],["setmana","Setmana"],["plus",""],["grafics","Calendari"],["pla","Jo"]];
@@ -1633,6 +1633,58 @@ function testDerived(t){ const T=TEST_TYPES[t.type]; if(!T||t.value==null) retur
   if(T.kind==="watts"){ const ftp=t.value*0.95, kg=lastKg(); return `FTP ${Math.round(ftp)} W${kg?` · ${(ftp/kg).toFixed(2)} W/kg`:""}`; }
   return ""; }
 function testList(){ return Object.entries(st.tests).map(([id,t])=>({id,...t})).filter(t=>isDate(t.date)).sort((a,b)=>a.date<b.date?1:-1); }
+/* ---------------- protocols de tests ---------------- */
+const TPROTO={
+ Carrera:[
+  {name:"VAM · progressiu al rellotge",lvl:"Tots",obj:"Mesurar la VAM i calcular les zones de cursa sense haver de dosificar: el ritme te'l marca el rellotge.",data:["VAM (km/h)","Ritme llindar","FC màxima","LTHR estimada","Zones de cursa"],
+   steps:[["Escalfament","15′","10′ trot suau · 3 rectes de 100 m · 2′ de pausa"],["Inici","1′","Principiants a 8 km/h · amateurs a 10 km/h"],["Esglaons","+1′","Cada minut +0,5 km/h. Segueix el ritme que marca el rellotge"],["Final","","Quan no aguantes el ritme de l'esglaó 15–20″"],["Tornada a la calma","5–10′","Caminar i trotar molt suau"]],
+   calc:["VAM = velocitat de l'últim esglaó complet","Si fas més de 30″ del següent: +0,25 km/h","Llindar = 80% VAM (principiants) · 85% (amateurs)","LTHR ≈ 90% de la FC màxima"],zones:true},
+  {name:"VAM · 6 minuts",lvl:"Tots",obj:"Mesurar la VAM amb un test simple, que es pot fer sol i sense material.",data:["VAM (km/h)","Ritme llindar","FC màxima","LTHR estimada","Zones de cursa"],
+   steps:[["Escalfament","15′","10′ trot suau · 3 rectes de 100 m · 2′ de pausa"],["Test","6′","La màxima distància possible a pista"],["Dosificació","","1r minut controlat · del 2 al 4 constant · els 2 últims a fons"],["Mesura","","Metres exactes: voltes × 400 + l'última volta"],["Tornada a la calma","5–10′","Caminar i trotar molt suau"]],
+   calc:["VAM (km/h) = metres ÷ 100  (1.650 m → 16,5 km/h)","Llindar = 80% VAM (principiants) · 85% (amateurs)","Vàlid si el ritme no cau més d'un 5% al final"],zones:true},
+  {name:"Contrarellotge 3 km",lvl:"Principiants",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat"],
+   steps:[["Escalfament","15–20′","12′ trot suau · 3–4 rectes · 3′ de pausa"],["Test","3 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau"]],
+   calc:["Llindar ≈ ritme dels 3 km + 20–25 s/km","Si no quadra amb la VAM (±10 s/km), s'ajusta el %"]},
+  {name:"Contrarellotge 5 km",lvl:"Amateurs",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat","LTHR real"],
+   steps:[["Escalfament","15–20′","12′ trot suau · 3–4 rectes · 3′ de pausa"],["Test","5 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau"]],
+   calc:["Llindar ≈ ritme dels 5 km + 10–15 s/km","LTHR ≈ FC mitjana de la 2a meitat − 2–3 ppm"]}],
+ Ciclisme:[
+  {name:"FTP · 20 minuts",lvl:"Amb potenciòmetre",obj:"Trobar l'FTP, la potència que pots mantenir ~1 hora, i calcular les zones de potència.",data:["FTP (W)","W/kg","Zones de potència"],
+   steps:[["Preparació","","Calibrar el potenciòmetre · rodet amb ventilador i aigua"],["Escalfament","20′","10′ suau · 3×1′ cadència alta · 3′ a ritme de test · 3′ suau"],["Test","20′","Màxima potència constant, a 85–95 rpm"],["Dosificació","","0–5′: FTP anterior +5% · 5–15′: mantenir · 15–20′: a fons"],["Tornada a la calma","10′","Molt suau"]],
+   calc:["FTP = potència mitjana × 0,95  (263 W → 250 W)","W/kg = FTP ÷ pes del dia","Vàlid si els últims 5′ no cauen més d'un 10%"]},
+  {name:"Test 30′ amb FC",lvl:"Sense potenciòmetre",obj:"Trobar la FC al llindar de bici (LTHR) i tenir una velocitat de referència per veure la millora.",data:["LTHR bici","Velocitat mitjana","Distància","Zones de FC"],
+   steps:[["Recorregut","","Sempre el mateix: pla i sense parades, o el rodet amb la mateixa resistència"],["Escalfament","20′","10′ suau · 3×1′ cadència alta · 3′ a ritme de test · 3′ suau"],["Test","30′","Màxim esforç sostingut, com una contrarellotge"],["Volta al minut 10","","Prem volta per separar els últims 20′"],["Tornada a la calma","10′","Molt suau"]],
+   calc:["LTHR bici = FC mitjana dels últims 20′","Millora = més velocitat al mateix recorregut, o la mateixa amb menys FC"]}],
+ "Natació":[
+  {name:"400 m",lvl:"No experimentats",obj:"Tenir un ritme de referència a l'aigua i veure com millora.",data:["Temps 400 m","Ritme /100 m","Ritme llindar estimat"],
+   steps:[["Escalfament","15′","300 m suau · 4×50 progressius (desc. 20″) · 2′ de pausa"],["Test","400 m","Crol a fons, sortint des de dins de l'aigua"],["Dosificació","","100 m controlats · mantenir · últims 100 m a fons"],["Mesura","","Crono des de fora o volta manual al rellotge"]],
+   calc:["Ritme /100 m = temps ÷ 4  (7:20 → 1:50/100 m)","Llindar ≈ ritme del 400 + 3–5 s/100 m"]},
+  {name:"CSS · 400 + 200",lvl:"Experimentats",obj:"Trobar el CSS: el ritme llindar de natació que fan servir els entrenos del rellotge.",data:["T400","T200","CSS /100 m","Zones de natació"],
+   steps:[["Escalfament","15′","300 m suau · 4×50 progressius · 2×25 ràpids · 2′ de pausa"],["Test 1","400 m","A fons, sortint des de l'aigua. Anota el temps"],["Recuperació","5–10′","Nedar molt suau o descansar"],["Test 2","200 m","A fons, sortint des de l'aigua. Anota el temps"]],
+   calc:["CSS = (T400 − T200) ÷ 2","Ex.: 6:40 i 3:10 → (400 − 190) ÷ 2 = 1:45/100 m","Vàlid si T400 ÷ T200 = 2,05 – 2,20"]}]};
+const TDISC=[["res","Resultats",null],["Carrera","Cursa","Carrera"],["Ciclisme","Bici","Ciclisme"],["Natació","Natació","Natació"]];
+function vTestProto(disc){
+  const col=DHEX[disc]||"var(--brand)";
+  let h=`<div class="card" style="margin-top:12px;padding:12px 14px"><div class="eyebrow">Abans de cada test</div><div class="chips" style="margin-top:8px">${["Descansat (dia anterior suau)","Mateixa hora, lloc i material","Banda de pit si en tens","Anota FC, RPE i condicions","Setmana de descàrrega · cada 6–8 setm."].map(x=>`<span class="chip">${x}</span>`).join("")}</div></div>`;
+  TPROTO[disc].forEach((t,ti)=>{
+    h+=`<details class="card" style="margin-top:10px;padding:0;overflow:hidden" ${ti===0?"open":""}>
+    <summary style="list-style:none;cursor:pointer;padding:14px 16px;display:flex;align-items:center;gap:12px">${discIcon(disc,36)}<span style="flex:1;min-width:0"><b style="display:block;font-size:17px">${esc(t.name)}</b><span class="pill" style="margin-top:4px;display:inline-block;color:${col};border-color:${col}">${esc(t.lvl)}</span></span><span class="mut" style="font-size:20px">⌄</span></summary>
+    <div style="padding:0 16px 16px">
+      <div class="eyebrow" style="margin-top:2px">Objectiu</div><p style="margin:4px 0 0;line-height:1.45">${esc(t.obj)}</p>
+      <div class="eyebrow" style="margin-top:14px">Dades que s'extreuen</div><div class="chips" style="margin-top:6px">${t.data.map(d=>`<span class="chip" style="border-color:${col}">${esc(d)}</span>`).join("")}</div>
+      <div class="eyebrow" style="margin-top:14px">Protocol</div>
+      <div style="margin-top:8px;display:flex;flex-direction:column">${t.steps.map((st_,i)=>`<div style="display:grid;grid-template-columns:30px 1fr;gap:10px"><div style="display:flex;flex-direction:column;align-items:center"><span style="width:26px;height:26px;border-radius:50%;background:${col};color:#000;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none">${i+1}</span>${i<t.steps.length-1?`<span style="flex:1;width:2px;background:var(--card2);margin:2px 0"></span>`:""}</div><div style="padding-bottom:${i<t.steps.length-1?"12px":"0"}"><div class="row" style="gap:8px;align-items:center"><b>${esc(st_[0])}</b>${st_[1]?`<span class="pill">${esc(st_[1])}</span>`:""}</div><div class="small mut" style="margin-top:2px;line-height:1.4">${esc(st_[2])}</div></div></div>`).join("")}</div>
+      <div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--card2)"><div class="eyebrow">Càlcul</div>${t.calc.map(c=>`<div class="small" style="margin-top:4px">• ${esc(c)}</div>`).join("")}</div>
+      ${t.zones?`<div class="eyebrow" style="margin-top:14px">Zones de cursa (% VAM)</div><div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:6px">${[["Z1","< 65%","#8B939C"],["Z2","65–75%","#4DA3FF"],["Z3","75–85%","#3DDC84"],["Z4","85–95%","#FFD60A"],["Z5","95–105%","#FF6B5E"]].map(z=>`<div style="text-align:center;padding:6px 2px;border-radius:8px;background:color-mix(in srgb, ${z[2]} 18%, transparent)"><b style="color:${z[2]}">${z[0]}</b><div class="small">${z[1]}</div></div>`).join("")}</div>`:""}
+    </div></details>`;
+  });
+  return h;
+}
+function vTestsWrap(){
+  const t=st.testTab||"res";
+  const seg=`<div class="seg" role="tablist" style="margin-top:12px">${TDISC.map(([k,l])=>`<button class="${t===k?"on":""}" data-act="testTab" data-t="${k}" role="tab" aria-selected="${t===k}">${l}</button>`).join("")}</div>`;
+  return seg+(t==="res"?vTests():vTestProto(t));
+}
 function vTests(){
   const list=testList();
   let h=`<div class="row between" style="margin:14px 0 10px"><span class="note" style="margin:0">Resultats de cada prova. Amb 2 o més resultats surt el gràfic: més amunt sempre vol dir millor.</span><button class="btn pri" style="padding:9px 14px;font-size:14px;white-space:nowrap;flex:none" data-act="editTest">+ Nou</button></div>`;
@@ -1964,6 +2016,7 @@ document.addEventListener("click", e=>{
     case "logout": sb&&sb.auth.signOut(); break;
     case "viewAth": viewAthlete(el.dataset.id); break;
     case "photo": sheetPhoto("photo"); break;
+    case "testTab": st.testTab=el.dataset.t; render(); break;
     case "chPass": openSheet(sheetHead("Canviar contrasenya",userLabel(st.email||""))+`<div class="field"><label for="np1">Contrasenya nova</label><input class="in-t" id="np1" type="password" autocomplete="new-password" minlength="6"></div><div class="field"><label for="np2">Repeteix-la</label><input class="in-t" id="np2" type="password" autocomplete="new-password" minlength="6"></div><div class="err" id="np-err"></div><button class="btn pri block" data-act="chPassGo">Guardar</button>`); break;
     case "chPassGo": { const a=document.querySelector("#np1").value, b=document.querySelector("#np2").value, e=document.querySelector("#np-err"); if(a.length<6){ e.textContent="Mínim 6 caràcters."; break; } if(a!==b){ e.textContent="No coincideixen."; break; } sb.auth.updateUser({password:a}).then(({error})=>{ if(error){ e.textContent="No s'ha pogut canviar. Torna-ho a provar."; } else { closeSheet(); toast("Contrasenya canviada"); } }); break; }
     case "cGo": st.cview=el.dataset.v; if((st.cview==="panel"||st.cview==="anal")&&!st.athData) loadAthData().then(render); render(); window.scrollTo(0,0); break;
