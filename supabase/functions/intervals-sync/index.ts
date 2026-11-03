@@ -259,9 +259,22 @@ async function pushDays(uid: string, iid: string, dates: string[], key: string) 
   const now = new Date().toISOString(), out: Record<string, number> = {}, up: any[] = [];
   for (const d of dates) {
     const doc = plan[d], items = Array.isArray(doc?.items) ? doc.items : [], keep: string[] = [];
+    // Primer enviament d'aquest dia: aprofita els entrenos que ja hi ha al calendari (posats a mà)
+    // per actualitzar-los en lloc de crear-ne de duplicats.
+    let free: any[] = [];
+    if (!(d in pushed)) {
+      try {
+        const evs: any = await call("GET", `events?oldest=${d}&newest=${d}&category=WORKOUT`);
+        free = (Array.isArray(evs) ? evs : []).filter((e: any) => e && e.category === "WORKOUT" && String(e.start_date_local || "").slice(0, 10) === d);
+      } catch (_) { free = []; }
+    }
     let n = 0;
     for (const it of items) {
       if (!it || !EV_TYPE[it.disc]) continue;
+      if (!it.iev && free.length) {
+        const i = free.findIndex((e: any) => e.type === EV_TYPE[it.disc]);
+        if (i >= 0) { it.iev = String(free[i].id); free.splice(i, 1); }
+      }
       const ev = { category: "WORKOUT", start_date_local: `${d}T00:00:00`, type: EV_TYPE[it.disc], name: it.title || it.disc, description: eventDesc(it), moving_time: it.min ? Math.round(it.min * 60) : undefined };
       let id = it.iev ? String(it.iev) : "";
       try { if (id) await call("PUT", `events/${id}`, ev); else { const r: any = await call("POST", "events", ev); id = String(r.id); } }
