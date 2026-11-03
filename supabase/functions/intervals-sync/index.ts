@@ -273,7 +273,13 @@ async function pushDays(uid: string, iid: string, dates: string[], key: string) 
       if (!it || !EV_TYPE[it.disc]) continue;
       if (!it.iev && free.length) {
         const i = free.findIndex((e: any) => e.type === EV_TYPE[it.disc]);
-        if (i >= 0) { it.iev = String(free[i].id); free.splice(i, 1); }
+        if (i >= 0) {
+          it.iev = String(free[i].id);
+          // Conserva l'estructura (passos) de l'entreno que ja hi havia, si l'entrenador no n'ha posat cap
+          const old = String(free[i].description || "");
+          if (!String(it.watch || "").trim() && /^\s*(-\s|\d+x\b)/m.test(old)) it.watch = old.trim();
+          free.splice(i, 1);
+        }
       }
       const ev = { category: "WORKOUT", start_date_local: `${d}T00:00:00`, type: EV_TYPE[it.disc], name: it.title || it.disc, description: eventDesc(it), moving_time: it.min ? Math.round(it.min * 60) : undefined };
       let id = it.iev ? String(it.iev) : "";
