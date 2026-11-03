@@ -492,7 +492,7 @@ async function doLogin(){
       const code=(g("l-code")||"").toUpperCase();
       if(!/^[A-Z0-9]{4,12}$/.test(code)){ err.style.color=""; err.textContent="Posa el codi d'invitació que t'ha donat el teu entrenador."; return; }
       if(pass.length<6){ err.style.color=""; err.textContent="La contrasenya ha de tenir almenys 6 caràcters."; return; }
-      const {data,error}=await sb.functions.invoke("signup",{body:{code,email,password:pass}});
+      const {data,error}=await sb.functions.invoke("bright-service",{body:{code,email,password:pass}});
       if(error){ let c2=""; try{ c2=(await error.context.json()).error; }catch(_){}
         err.style.color=""; err.textContent= c2==="code"?"El codi no és vàlid, ja s'ha fet servir o ha caducat. Demana'n un de nou al teu entrenador.":c2==="exists"?"Aquest usuari o correu ja té un compte. Entra amb la contrasenya.":"No s'ha pogut crear el compte. Torna-ho a provar."; return; }
       const r=await sb.auth.signInWithPassword({email,password:pass}); if(r.error) throw r.error; startSession(r.data.session);

@@ -1,4 +1,4 @@
-// Càrrega Tri · signup
+// Càrrega Tri · signup (desplegada a Supabase amb el nom "bright-service")
 // Crea un compte NOMÉS amb un codi d'invitació vàlid generat per un entrenador.
 // Els registres públics de Supabase han d'estar desactivats (Allow new users to sign up = off):
 // aquesta funció crea l'usuari des del servidor i el vincula a l'entrenador del codi.
