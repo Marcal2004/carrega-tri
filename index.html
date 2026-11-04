@@ -1657,10 +1657,18 @@ function easyItem(it){
   const step=it.disc==="Natació"?`- ${m}m 70-80% Pace`:`- ${m}m 65-80% LTHR`;
   return {...it,title:`${lab} suau ${fmtMinH(m)}`,min:m,warm:"",main:"Tot en Z1–Z2, a ritme de conversa",cool:"",detail:"Tot en Z1–Z2, a ritme de conversa",watch:step};
 }
+// Actualitza la durada i la distància que surten al títol ("Bici 1h30 Z2" → "Bici 1h05 Z2", "Natació 2.250 m" → "Natació 1.600 m")
+function shortTitle(t,f,newMin){
+  let done=false;
+  t=t.replace(/\b(\d+)h(\d{2})?\b|\b(?:\d+\s?[–-]\s?)?(\d+)\s?(?:′|'|min\b)/, m0=>{ done=true; return newMin?fmtMinH(newMin):m0; });
+  t=t.replace(/\b(\d{1,2}(?:\.\d{3})+|\d{3,5})(?:\s?m\b|(?=\s*(?:·|$)))/, (m0,n)=>{ const v=Math.round(Number(n.replace(/\./g,""))*f/50)*50; return v.toLocaleString("ca-ES").replace(/\s/g,".")+" m"; });
+  t=t.replace(/\b(\d+(?:[.,]\d+)?)\s?km\b/, (m0,n)=>{ const v=Math.round(Number(n.replace(",","."))*f*2)/2; return String(v).replace(".",",")+" km"; });
+  return t;
+}
 function shortItem(it){
   const m=it.min?Math.max(10,Math.round(it.min*ADJ_F/5)*5):it.min;
   const note=` (−${Math.round((1-ADJ_F)*100)}%)`;
-  return {...it,min:m,main:it.main?it.main+note:it.main,detail:it.detail?it.detail+note:it.detail,watch:it.watch?scaleWatch(it.watch,ADJ_F):it.watch};
+  return {...it,title:shortTitle(it.title||"",ADJ_F,m),min:m,main:it.main?it.main+note:it.main,detail:it.detail?it.detail+note:it.detail,watch:it.watch?scaleWatch(it.watch,ADJ_F):it.watch};
 }
 function applyAdj(d,type){
   const doc=st.dayplan[d]; if(!doc) return;
