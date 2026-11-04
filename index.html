@@ -911,12 +911,14 @@ async function doCopy(){
   if(!isDate(wk)){ err.textContent="Tria la setmana."; return; }
   const tw=monday(wk); if(tw===ws&&to===st.viewUid){ err.textContent="És la mateixa setmana."; return; }
   const rows=[], now=new Date().toISOString();
-  for(let i=0;i<7;i++){ const src=st.dayplan[addD(ws,i)]; if(src) rows.push({user_id:to,coll:"dayplan",id:addD(tw,i),data:src,updated_at:now}); }
+  const clean=src=>({...src,pushedAt:undefined,items:(src.items||[]).map(it=>{ if(!it) return it; const x={...(it.orig?{...it,...it.orig}:it)}; delete x.iev; delete x.orig; delete x.adj; delete x.status; return x; })});
+  for(let i=0;i<7;i++){ const src=st.dayplan[addD(ws,i)]; if(src) rows.push({user_id:to,coll:"dayplan",id:addD(tw,i),data:clean(src),updated_at:now}); }
   if(goal&&st.plan[ws]) rows.push({user_id:to,coll:"plan",id:tw,data:st.plan[ws],updated_at:now});
   if(!rows.length){ err.textContent="Aquesta setmana no té res planificat."; return; }
   const {error}=await sb.from("docs").upsert(rows);
   if(error){ err.textContent="No s'ha pogut copiar."; return; }
   closeSheet(); toast(`Copiada (${rows.length} dies/objectius)`);
+  { const ad=st.athletes.find(x=>x.athlete_id===to), ds=rows.filter(r=>r.coll==="dayplan"&&r.id>=todayStr()).map(r=>r.id); if(ad?.intervals_id&&ds.length) pushToWatch(ds,{silent:true,uid:to}); }
   if(to===st.viewUid){ try{ await loadAll(); }catch(e){} }
   st.athData=null; loadAthData().then(render); render();
 }
@@ -949,10 +951,12 @@ const WLIB=[
   {disc:"Força",title:"Gym convencional",min:45,detail:"5′ mobilitat\nBack squat 4×6\nRomanian deadlift 3×8\nBulgarian split squat 3×8/cama\nPull-ups 3×6-8\nCalf raises 3×15"},
   {disc:"Força",title:"Gym explosiu",min:40,detail:"5′ mobilitat\nBox jumps 4×4\nJump squats 3×5\nKettlebell swings 3×10\nMedicine ball slams 3×8\nSingle-leg hops 3×6/cama"},
   {disc:"Força",title:"Mobilitat + core",min:30,detail:"Mobilitat lliure 10′\nDead bug 3×10\nSide plank 3×30″/costat\nBird dog 3×10\nGlute bridge 3×12\nCopenhagen plank 3×20″"}]},
+ {cat:"Tests",items:[]},
  {cat:"Combinats",items:[
   {disc:"Ciclisme",title:"Brick bici + T2",min:120,detail:"Bici: - 90m 67-78% LTHR\nTransició ràpida\nCursa: - 20m 85-87% Pace\n(Registra la cursa com a sessió apart amb brick)"}]}
 ];
-function vCoachLib(){
+function fillTestLib(){ const c=WLIB.find(x=>x.cat==="Tests"); if(!c||c.items.length) return; for(const [disc,arr] of Object.entries(TPROTO)) for(const t of arr) for(const w of (TEST_W[t.name]||[])) c.items.push({disc,title:w.title,min:w.min,detail:w.watch}); }
+function vCoachLib(){ fillTestLib();
   const f=st.libF||"Totes", tpl=tplList();
   let h=coachHead("Entrenador","Entrenos",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cTplEdit">+ Nova</button>`);
   h+=`<div class="chips" style="margin-top:12px">${["Totes","Les meves",...WLIB.map(c=>c.cat)].map(c=>`<button class="chip" data-act="cLibF" data-f="${c}" style="${f===c?"background:var(--brand);color:var(--on-brand);border-color:var(--brand)":""}">${c}</button>`).join("")}</div>`;
@@ -963,14 +967,14 @@ function vCoachLib(){
   h+=`<p class="note" style="margin-top:10px">Els detalls fan servir el format d'intervals.icu (% LTHR, % Pace, % FTP), que s'adapta a les zones de cada atleta quan es puja al rellotge.</p>`;
   return h;
 }
-function libGet(src,id){ if(src==="tpl") return (st.tpl||{})[id]||null; const [a,b]=String(id).split("-").map(Number); return WLIB[a]?.items[b]||null; }
+function libGet(src,id){ fillTestLib(); if(src==="tpl") return (st.tpl||{})[id]||null; const [a,b]=String(id).split("-").map(Number); return WLIB[a]?.items[b]||null; }
 function sheetLibPlan(src,id){
   const w=libGet(src,id); if(!w) return; sheetState={kind:"libplan",w};
   let h=sheetHead("Planificar entreno",w.title);
   h+=`<div class="field"><label for="lp-ath">Atleta</label><select class="in-t" id="lp-ath">${st.athletes.map(a=>`<option value="${a.athlete_id}" ${a.athlete_id===st.viewUid?"selected":""}>${esc(athName(a))}</option>`).join("")}</select></div>
   <div class="f2"><div class="field"><label for="lp-date">Dia</label><input class="in-t" id="lp-date" type="date" value="${addD(todayStr(),1)}"></div><div class="field"><label for="lp-min">Minuts</label><input class="in-t" id="lp-min" type="number" inputmode="numeric" value="${w.min??""}"></div></div>
   <div class="field"><label for="lp-title">Títol</label><input class="in-t" id="lp-title" maxlength="60" value="${esc(w.title)}"></div>
-  <div class="field"><label for="lp-det">Detall</label><textarea class="in-t" id="lp-det" rows="5" maxlength="400">${esc(w.detail||"")}</textarea></div>
+  <div class="field"><label for="lp-det">Detall</label><textarea class="in-t" id="lp-det" rows="6" maxlength="2000">${esc(w.detail||"")}</textarea></div>
   <div class="err" id="lp-err"></div><button class="btn pri block" data-act="cLibPlanGo">Afegir al pla del dia</button>
   <p class="note" style="margin-top:8px">S'afegeix als entrenos que ja tingui aquell dia (màxim 4).</p>`;
   openSheet(h);
@@ -986,6 +990,7 @@ async function doLibPlan(){
   const {error}=await sb.from("docs").upsert({user_id:uid,coll:"dayplan",id:date,data:{...d,items},updated_at:new Date().toISOString()});
   if(error){ err.textContent="No s'ha pogut guardar."; return; }
   closeSheet(); const a=st.athletes.find(x=>x.athlete_id===uid); toast(`Afegit a ${a?athName(a):"l'atleta"} · ${fmtShort(date)}`);
+  if(a?.intervals_id && date>=todayStr()) pushToWatch([date],{silent:true,uid});
   if(uid===st.viewUid){ try{ await loadAll(); }catch(e){} }
   if(st.athData?.[uid]) st.athData[uid].dayplan[date]={...d,items};
   render();
@@ -1884,31 +1889,49 @@ function testList(){ return Object.entries(st.tests).map(([id,t])=>({id,...t})).
 const TPROTO={
  Carrera:[
   {name:"VAM · progressiu al rellotge",lvl:"Tots",obj:"Mesurar la VAM i calcular les zones de cursa sense haver de dosificar: el ritme te'l marca el rellotge.",data:["VAM (km/h)","Ritme llindar","FC màxima","LTHR estimada","Zones de cursa"],
-   steps:[["Escalfament","15′","10′ trot suau · 3 rectes de 100 m · 2′ de pausa"],["Inici","1′","Principiants a 8 km/h · amateurs a 10 km/h"],["Esglaons","+1′","Cada minut +0,5 km/h. Segueix el ritme que marca el rellotge"],["Final","","Quan no aguantes el ritme de l'esglaó 15–20″"],["Tornada a la calma","5–10′","Caminar i trotar molt suau"]],
+   steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Inici","1′","Principiants a 8 km/h · amateurs a 10 km/h"],["Esglaons","+1′","Cada minut +0,5 km/h. Segueix el ritme que marca el rellotge"],["Final","","Quan no aguantes el ritme de l'esglaó 15–20″"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["VAM = velocitat de l'últim esglaó complet","Si fas més de 30″ del següent: +0,25 km/h","Llindar = 80% VAM (principiants) · 85% (amateurs)","LTHR ≈ 90% de la FC màxima"],zones:true},
   {name:"VAM · 6 minuts",lvl:"Tots",obj:"Mesurar la VAM amb un test simple, que es pot fer sol i sense material.",data:["VAM (km/h)","Ritme llindar","FC màxima","LTHR estimada","Zones de cursa"],
-   steps:[["Escalfament","15′","10′ trot suau · 3 rectes de 100 m · 2′ de pausa"],["Test","6′","La màxima distància possible a pista"],["Dosificació","","1r minut controlat · del 2 al 4 constant · els 2 últims a fons"],["Mesura","","Metres exactes: voltes × 400 + l'última volta"],["Tornada a la calma","5–10′","Caminar i trotar molt suau"]],
+   steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","6′","La màxima distància possible a pista"],["Dosificació","","1r minut controlat · del 2 al 4 constant · els 2 últims a fons"],["Mesura","","Metres exactes: voltes × 400 + l'última volta"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["VAM (km/h) = metres ÷ 100  (1.650 m → 16,5 km/h)","Llindar = 80% VAM (principiants) · 85% (amateurs)","Vàlid si el ritme no cau més d'un 5% al final"],zones:true},
   {name:"Contrarellotge 3 km",lvl:"Principiants",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat"],
-   steps:[["Escalfament","15–20′","12′ trot suau · 3–4 rectes · 3′ de pausa"],["Test","3 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau"]],
+   steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","3 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["Llindar ≈ ritme dels 3 km + 20–25 s/km","Si no quadra amb la VAM (±10 s/km), s'ajusta el %"]},
   {name:"Contrarellotge 5 km",lvl:"Amateurs",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat","LTHR real"],
-   steps:[["Escalfament","15–20′","12′ trot suau · 3–4 rectes · 3′ de pausa"],["Test","5 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau"]],
+   steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","5 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["Llindar ≈ ritme dels 5 km + 10–15 s/km","LTHR ≈ FC mitjana de la 2a meitat − 2–3 ppm"]}],
  Ciclisme:[
   {name:"FTP · 20 minuts",lvl:"Amb potenciòmetre",obj:"Trobar l'FTP, la potència que pots mantenir ~1 hora, i calcular les zones de potència.",data:["FTP (W)","W/kg","Zones de potència"],
-   steps:[["Preparació","","Calibrar el potenciòmetre · rodet amb ventilador i aigua"],["Escalfament","20′","10′ suau · 3×1′ cadència alta · 3′ a ritme de test · 3′ suau"],["Test","20′","Màxima potència constant, a 85–95 rpm"],["Dosificació","","0–5′: FTP anterior +5% · 5–15′: mantenir · 15–20′: a fons"],["Tornada a la calma","10′","Molt suau"]],
+   steps:[["Preparació","","Calibrar el potenciòmetre · rodet amb ventilador i aigua"],["Escalfament","22′","10′ suau · 3×1′ cadència alta (105–110 rpm) amb 1′ suau · 3′ al 90–95% LTHR · 3′ suau"],["Test","20′","Màxima potència constant, a 85–95 rpm"],["Dosificació","","0–5′: FTP anterior +5% · 5–15′: mantenir · 15–20′: a fons"],["Tornada a la calma","10′","Roda molt suau Z1"]],
    calc:["FTP = potència mitjana × 0,95  (263 W → 250 W)","W/kg = FTP ÷ pes del dia","Vàlid si els últims 5′ no cauen més d'un 10%"]},
   {name:"Test 30′ amb FC",lvl:"Sense potenciòmetre",obj:"Trobar la FC al llindar de bici (LTHR) i tenir una velocitat de referència per veure la millora.",data:["LTHR bici","Velocitat mitjana","Distància","Zones de FC"],
-   steps:[["Recorregut","","Sempre el mateix: pla i sense parades, o el rodet amb la mateixa resistència"],["Escalfament","20′","10′ suau · 3×1′ cadència alta · 3′ a ritme de test · 3′ suau"],["Test","30′","Màxim esforç sostingut, com una contrarellotge"],["Volta al minut 10","","Prem volta per separar els últims 20′"],["Tornada a la calma","10′","Molt suau"]],
+   steps:[["Recorregut","","Sempre el mateix: pla i sense parades, o el rodet amb la mateixa resistència"],["Escalfament","22′","10′ suau · 3×1′ cadència alta (105–110 rpm) amb 1′ suau · 3′ al 90–95% LTHR · 3′ suau"],["Test","30′","Màxim esforç sostingut, com una contrarellotge"],["Volta al minut 10","","Prem volta per separar els últims 20′"],["Tornada a la calma","10′","Roda molt suau Z1"]],
    calc:["LTHR bici = FC mitjana dels últims 20′","Millora = més velocitat al mateix recorregut, o la mateixa amb menys FC"]}],
  "Natació":[
   {name:"400 m",lvl:"No experimentats",obj:"Tenir un ritme de referència a l'aigua i veure com millora.",data:["Temps 400 m","Ritme /100 m","Ritme llindar estimat"],
-   steps:[["Escalfament","15′","300 m suau · 4×50 progressius (desc. 20″) · 2′ de pausa"],["Test","400 m","Crol a fons, sortint des de dins de l'aigua"],["Dosificació","","100 m controlats · mantenir · últims 100 m a fons"],["Mesura","","Crono des de fora o volta manual al rellotge"]],
+   steps:[["Escalfament","~12′","300 m suau · 4×50 m progressius (desc. 20″) · 2′ de pausa"],["Test","400 m","Crol a fons, sortint des de dins de l'aigua"],["Dosificació","","100 m controlats · mantenir · últims 100 m a fons"],["Mesura","","Crono des de fora o volta manual al rellotge"]],
    calc:["Ritme /100 m = temps ÷ 4  (7:20 → 1:50/100 m)","Llindar ≈ ritme del 400 + 3–5 s/100 m"]},
   {name:"CSS · 400 + 200",lvl:"Experimentats",obj:"Trobar el CSS: el ritme llindar de natació que fan servir els entrenos del rellotge.",data:["T400","T200","CSS /100 m","Zones de natació"],
-   steps:[["Escalfament","15′","300 m suau · 4×50 progressius · 2×25 ràpids · 2′ de pausa"],["Test 1","400 m","A fons, sortint des de l'aigua. Anota el temps"],["Recuperació","5–10′","Nedar molt suau o descansar"],["Test 2","200 m","A fons, sortint des de l'aigua. Anota el temps"]],
+   steps:[["Escalfament","~12′","300 m suau · 4×50 m progressius (desc. 20″) · 2′ de pausa"],["Test 1","400 m","A fons, sortint des de l'aigua. Anota el temps"],["Recuperació","5–10′","Nedar molt suau o descansar"],["Test 2","200 m","A fons, sortint des de l'aigua. Anota el temps"]],
    calc:["CSS = (T400 − T200) ÷ 2","Ex.: 6:40 i 3:10 → (400 − 190) ÷ 2 = 1:45/100 m","Vàlid si T400 ÷ T200 = 2,05 – 2,20"]}]};
+/* ---------------- tests estàndard: sempre el mateix entreno ---------------- */
+const TW_RUN="Escalfament\n- 10m 65-75% LTHR\n\n3x\n- 20s 100-105% Pace\n- 40s 50-60% LTHR\n\n- 2m 50-60% LTHR";
+const TW_BIKE="Escalfament\n- 10m 65-75% LTHR\n\n3x\n- 1m 75-80% LTHR 105-110rpm\n- 1m 60-65% LTHR\n\n- 3m 90-95% LTHR\n- 3m 60-65% LTHR";
+const TW_SWIM="Escalfament\n- 300mtr 70-80% Pace\n\n4x\n- 50mtr 80-95% Pace\n- 20s Rest\n\n- 2m Rest";
+const CD_RUN="\n\nTornada a la calma\n- 10m 55-65% LTHR", CD_BIKE="\n\nTornada a la calma\n- 10m 55-65% LTHR", CD_SWIM="\n\nTornada a la calma\n- 200mtr 70% Pace";
+function vamSteps(v0){ const L=[]; for(let v=v0; v<=22.001; v+=0.5){ const sec=Math.round(3600/v); L.push(`- 1m ${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}/km Pace`); } return L.join("\n"); }
+const TEST_W={
+ "VAM · progressiu al rellotge":[
+   {title:"Test VAM progressiu (principiant)",min:45,watch:TW_RUN+"\n\nTest: segueix el ritme fins que no puguis (prem volta i para)\n"+vamSteps(8)+CD_RUN},
+   {title:"Test VAM progressiu (amateur)",min:45,watch:TW_RUN+"\n\nTest: segueix el ritme fins que no puguis (prem volta i para)\n"+vamSteps(10)+CD_RUN}],
+ "VAM · 6 minuts":[{title:"Test VAM 6′",min:31,watch:TW_RUN+"\n\nTest a fons: màxima distància\n- 6m 100-110% Pace"+CD_RUN}],
+ "Contrarellotge 3 km":[{title:"Test 3 km",min:40,watch:TW_RUN+"\n\nTest a fons\n- 3km 100-105% Pace"+CD_RUN}],
+ "Contrarellotge 5 km":[{title:"Test 5 km",min:50,watch:TW_RUN+"\n\nTest a fons\n- 5km 100-105% Pace"+CD_RUN}],
+ "FTP · 20 minuts":[{title:"Test FTP 20′",min:52,watch:TW_BIKE+"\n\nTest a fons: potència constant\n- 20m 100-105% FTP 85-95rpm"+CD_BIKE}],
+ "Test 30′ amb FC":[{title:"Test bici 30′ FC",min:62,watch:TW_BIKE+"\n\nTest a fons (els dos passos sense parar)\n- 10m 95-100% LTHR\n- 20m 98-102% LTHR"+CD_BIKE}],
+ "400 m":[{title:"Test natació 400 m",min:30,watch:TW_SWIM+"\n\nTest a fons\n- 400mtr 100-105% Pace"+CD_SWIM}],
+ "CSS · 400 + 200":[{title:"Test CSS 400 + 200",min:40,watch:TW_SWIM+"\n\nTest 1 a fons\n- 400mtr 100-105% Pace\n- 5m Rest\n\nTest 2 a fons\n- 200mtr 105-110% Pace"+CD_SWIM}]
+};
 const TDISC=[["res","Resultats",null],["Carrera","Cursa","Carrera"],["Ciclisme","Bici","Ciclisme"],["Natació","Natació","Natació"]];
 function vTestProto(disc){
   const col=DHEX[disc]||"var(--brand)";
@@ -1923,6 +1946,7 @@ function vTestProto(disc){
       <div class="eyebrow" style="margin-top:14px">Protocol</div>
       <div style="margin-top:8px;display:flex;flex-direction:column">${t.steps.map((st_,i)=>`<div style="display:grid;grid-template-columns:30px 1fr;gap:10px"><div style="display:flex;flex-direction:column;align-items:center"><span style="width:26px;height:26px;border-radius:50%;background:${col};color:#000;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none">${i+1}</span>${i<t.steps.length-1?`<span style="flex:1;width:2px;background:var(--card2);margin:2px 0"></span>`:""}</div><div style="padding-bottom:${i<t.steps.length-1?"12px":"0"}"><div class="row" style="gap:8px;align-items:center"><b>${esc(st_[0])}</b>${st_[1]?`<span class="pill">${esc(st_[1])}</span>`:""}</div><div class="small mut" style="margin-top:2px;line-height:1.4">${esc(st_[2])}</div></div></div>`).join("")}</div>
       <div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--card2)"><div class="eyebrow">Càlcul</div>${t.calc.map(c=>`<div class="small" style="margin-top:4px">• ${esc(c)}</div>`).join("")}</div>
+      ${(TEST_W[t.name]||[]).map(w=>`<details style="margin-top:14px"><summary class="eyebrow" style="cursor:pointer">⌚ Entreno estàndard${(TEST_W[t.name]||[]).length>1?" · "+esc(w.title.replace(/^.*\(|\)$/g,"")):""} · ${w.min}′</summary><pre class="small" style="white-space:pre-wrap;margin:8px 0 0;padding:10px;border-radius:10px;background:var(--card2);font-family:inherit;line-height:1.5">${esc(w.watch)}</pre></details>${st.viewUid?`<button class="btn block" style="margin-top:8px;padding:10px;font-size:14px" data-act="planTest" data-n="${esc(t.name)}" data-k="${(TEST_W[t.name]||[]).indexOf(w)}">Planificar «${esc(w.title)}»</button>`:""}`).join("")}
       ${t.zones?`<div class="eyebrow" style="margin-top:14px">Zones de cursa (% VAM)</div><div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:6px">${[["Z1","< 65%","#8B939C"],["Z2","65–75%","#4DA3FF"],["Z3","75–85%","#3DDC84"],["Z4","85–95%","#FFD60A"],["Z5","95–105%","#FF6B5E"]].map(z=>`<div style="text-align:center;padding:6px 2px;border-radius:8px;background:color-mix(in srgb, ${z[2]} 18%, transparent)"><b style="color:${z[2]}">${z[0]}</b><div class="small">${z[1]}</div></div>`).join("")}</div>`:""}
     </div></details>`;
   });
@@ -2304,6 +2328,7 @@ document.addEventListener("click", e=>{
     case "brick": { const root=document.querySelector(".sheet"); readSess(root); sheetState.brick=!sheetState.brick; sheetSession.rebuild(); break; }
     case "morning": sheetMorning(el.dataset.date||todayStr()); break;
     case "saveMorning": saveMorning(); break;
+    case "planTest": { fillTestLib(); const c=WLIB.findIndex(x=>x.cat==="Tests"), w=TEST_W[el.dataset.n]?.[+el.dataset.k], i=WLIB[c].items.findIndex(x=>x.title===w?.title); if(i>=0) sheetLibPlan("lib",c+"-"+i); break; }
     case "recAdj": applyAdj(el.dataset.date, el.dataset.t); break;
     case "recPrompt": recPrompt(el.dataset.date); break;
     case "wk": st.weekRef = el.dataset.d==="0" ? monday(todayStr()) : addD(st.weekRef, Number(el.dataset.d)); render(); break;
