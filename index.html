@@ -1290,16 +1290,16 @@ function vSetmana(){
   if (pl?.p?.goal) h+=`<div class="card small" style="margin-bottom:10px"><span class="mut">Objectiu · </span>${esc(pl.p.goal)}</div>`;
   const pc = pl&&pl.load ? wr.load/pl.load : null;
   h+=`<div class="card"><div class="row between"><div><div class="eyebrow">Càrrega ponderada</div><div style="font-family:var(--disp);font-weight:700;font-size:38px;line-height:1" class="num">${fmtN(wr.load)} <span class="mut" style="font-size:18px">/ ${pl&&pl.load?fmtN(pl.load):"–"} UA</span></div></div>
-    <div style="text-align:center"><div class="eyebrow">Hores</div><div style="font-family:var(--disp);font-weight:700;font-size:30px;line-height:1.1" class="num">${r1(wr.min/60)}${pl?.hours!=null?` <span class="mut" style="font-size:16px">/ ${r1(pl.hours)}</span>`:""}</div></div>
+    <div style="text-align:center"><div class="eyebrow">Temps</div><div style="font-family:var(--disp);font-weight:700;font-size:30px;line-height:1.1" class="num">${fmtMinH(wr.min||0)}${pl?.hours!=null?` <span class="mut" style="font-size:16px">/ ${fmtMinH(pl.hours*60)}</span>`:""}</div></div>
     <div style="text-align:right"><div class="eyebrow">Compliment</div><div style="font-family:var(--disp);font-weight:700;font-size:30px;color:${pc==null?"var(--mut)":(pc<0.85||pc>1.15)?"var(--yellow)":"var(--green)"}">${pc!=null?Math.round(pc*100)+"%":"–"}</div></div></div>
     <div class="bar" style="margin-top:12px"><i style="width:${Math.min(100,(pc??0)*100/1.3)}%;background:var(--brand)"></i>${pl&&pl.load?`<span class="mark" style="left:${100/1.3}%"></span>`:""}</div>`;
   h+=`<div style="margin-top:12px">`;
   for (const d of DISC){
     const real=wr.byD[d]||0, ph=num(pl?.p?.h?.[DKEY[d]]), pr=num(pl?.p?.rpe?.[DKEY[d]]), plL = ph!=null&&pr!=null ? ph*60*pr*(coefs()[d]??1) : null;
     const mx=Math.max(real, plL||0, 1);
-    h+=`<div class="discrow"><span style="color:${DHEX[d]}">${ICON[d].replace("<svg",'<svg width="22" height="22"')}</span><div><div class="disclab"><span>${d} <span class="mut">${r1((wr.minD[d]||0)/60)} h${ph!=null?` / ${ph} h`:""}${distTxt(d,wr,pl)}</span></span><span class="num">${fmtN(real)}${plL!=null?` <span class="mut">/ ${fmtN(plL)}</span>`:""}</span></div><div class="bar"><i style="width:${real/mx*100}%;background:${DHEX[d]}"></i>${plL!=null?`<span class="mark" style="left:calc(${plL/mx*100}% - 1px)"></span>`:""}</div></div><span></span></div>`;
+    h+=`<div class="discrow"><span style="color:${DHEX[d]}">${ICON[d].replace("<svg",'<svg width="22" height="22"')}</span><div><div class="disclab"><span>${d} <span class="mut">${fmtHM(wr.minD[d]||0)}${ph!=null?` / ${fmtHM(ph*60)}`:""}${distTxt(d,wr,pl)}</span></span><span class="num">${fmtN(real)}${plL!=null?` <span class="mut">/ ${fmtN(plL)}</span>`:""}</span></div><div class="bar"><i style="width:${real/mx*100}%;background:${DHEX[d]}"></i>${plL!=null?`<span class="mark" style="left:calc(${plL/mx*100}% - 1px)"></span>`:""}</div></div><span></span></div>`;
   }
-  h+=`</div><div class="row between small mut" style="margin-top:6px"><span>${r1(wr.min/60)} h reals${pl?.hours!=null?` / ${r1(pl.hours)} h plan.`:""}</span><button class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="editPlan" data-ws="${ws}">Editar pla</button></div></div>`;
+  h+=`</div><div class="row between small mut" style="margin-top:6px"><span>${fmtHM(wr.min||0)} reals${pl?.hours!=null?` / ${fmtHM(pl.hours*60)} planificats`:""}</span><button class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="editPlan" data-ws="${ws}">Editar pla</button></div></div>`;
   h+=`<div class="grid3" style="margin-top:10px"><div class="tile"><div class="lab">Aguda</div><div class="val">${fmtN(ac.a)}</div></div><div class="tile"><div class="lab">Crònica</div><div class="val">${fmtN(ac.c)}</div></div><div class="tile"><div class="lab">ACWR</div><div class="val" style="color:${z?z[1]:"var(--fg)"}">${ac.acwr!=null?ac.acwr.toFixed(2):"–"}</div><div class="sub">${z?z[0]:"–"}</div></div></div>`;
   h+=`<h2>Dies</h2><div class="stack">`;
   for (let i=0;i<7;i++){
@@ -2156,6 +2156,7 @@ function vDayPlan(){
   }
   return h+`</div>`;
 }
+function fmtHM(m){ m=Math.round(m||0); const h=Math.floor(m/60), r=m%60; return h?(r?`${h} h ${r} min`:`${h} h`):`${r} min`; }
 function fmtMinH(m){ m=Math.round(m); return m>=60?`${Math.floor(m/60)}h${m%60?String(m%60).padStart(2,"0"):""}`:`${m}′`; }
 function sheetDay(date){
   const ex=st.dayplan[date]||{}; const items=[...dayItems(date)]; while(items.length<4) items.push({disc:"",title:"",detail:"",min:null});
