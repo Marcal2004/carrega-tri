@@ -220,19 +220,20 @@ const fmtN = n => n==null||!isFinite(n) ? "–" : Math.round(n).toLocaleString("
 const prof = () => st.profile || {};
 const okImg = v => typeof v==="string" && v.startsWith("data:image/");
 // Avatar per defecte: inicials en un cercle daurat; la mascota només si l'atleta la tria
+const LEGACY_UID="81627707-2287-4cbc-bc2b-c71de0326fce";   // compte d'en Marçal: mascota i lema per defecte
 function initialsImg(name){
   const t=String(name||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join("")||"·";
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0E0E0F"/><circle cx="50" cy="50" r="46" fill="none" stroke="#C8A96A" stroke-width="3"/><text x="50" y="50" dy=".35em" text-anchor="middle" font-family="Georgia,serif" font-size="${t.length>1?38:44}" fill="#C8A96A">${t.replace(/[<&>"]/g,"")}</text></svg>`;
   return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
 }
-function avatarOf(p){ p=p||{}; return okImg(p.photo)&&!p.photo.startsWith("data:image/svg")?p.photo:p.mascot?IMG_RUN:initialsImg(p.name); }
-const avatar = () => avatarOf(prof());
+function avatarOf(p,uid){ p=p||{}; const masc=p.mascot===true||(uid===LEGACY_UID&&p.mascot!==false); return okImg(p.photo)&&!p.photo.startsWith("data:image/svg")?p.photo:masc?IMG_RUN:initialsImg(p.name); }
+const avatar = () => avatarOf(prof(),curUid());
 const cover = () => okImg(prof().cover) ? prof().cover : IMG_BIKE;
 function sheetPhoto(kind="photo"){
   if (st.viewUid){ toast("La foto la canvia l'atleta des del seu compte."); return; }
   const isC=kind==="cover";
   openSheet(sheetHead(isC?"Foto d'Avui":"Foto de perfil")+`<div style="display:flex;justify-content:center;margin:6px 0 14px">${isC?`<img src="${cover()}" alt="" style="width:100%;height:150px;border-radius:14px;object-fit:cover">`:`<img src="${avatar()}" alt="" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)">`}</div>
-  <button class="btn pri block" data-act="pickPhoto" data-k="${kind}">Triar una foto</button>${!isC?`<button class="btn block" style="margin-top:8px" data-act="toggleMascot">${prof().mascot?"Treure la mascota":"Fer servir la mascota"}</button>`:""}${prof()[kind]?`<button class="btn block" style="margin-top:8px" data-act="delPhoto" data-k="${kind}">Treure la foto</button>`:""}`);
+  <button class="btn pri block" data-act="pickPhoto" data-k="${kind}">Triar una foto</button>${!isC?`<button class="btn block" style="margin-top:8px" data-act="toggleMascot">${avatar()===IMG_RUN?"Treure la mascota":"Fer servir la mascota"}</button>`:""}${prof()[kind]?`<button class="btn block" style="margin-top:8px" data-act="delPhoto" data-k="${kind}">Treure la foto</button>`:""}`);
 }
 function pickPhoto(kind="photo"){
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*";
@@ -383,7 +384,6 @@ async function startSession(session){
   afterConsent();
 }
 // Una sola vegada: el compte d'en Marçal conserva la mascota i el seu lema
-const LEGACY_UID="81627707-2287-4cbc-bc2b-c71de0326fce";
 function legacyProfile(){ if(st.uid===LEGACY_UID && !st.viewUid && prof().motto===undefined) write("profile",null,{mascot:true,motto:"QUE FALLE OTRO"}); }
 function afterConsent(){
   legacyProfile();
@@ -745,7 +745,7 @@ function withAth(uid,fn){
   try{ return fn(); } finally { st.profile=keep.profile; ATH_COLS.forEach(c=>st[c]=keep[c]); }
 }
 function athName(a){ return a.name||userLabel(a.athlete_email)||"Atleta"; }
-function athAvatar(uid,size=44){ const p=st.athData?.[uid]?.profile||{}; const src=avatarOf(p); return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:${p.photo?"50% 50%":"50% 20%"};background:var(--card2);flex:none">`; }
+function athAvatar(uid,size=44){ const p=st.athData?.[uid]?.profile||{}; const src=avatarOf(p,uid); return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:${p.photo?"50% 50%":"50% 20%"};background:var(--card2);flex:none">`; }
 
 /* resum d'un atleta per al panell */
 function athSummary(uid){
@@ -2409,7 +2409,7 @@ document.addEventListener("click", e=>{
     case "pushTest": pushTest(); break;
     case "cover": sheetPhoto("cover"); break;
     case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
-    case "toggleMascot": { const m=!prof().mascot; closeSheet(); write("profile",null,{mascot:m}); toast(m?"Mascota posada":"Mascota treta"); break; }
+    case "toggleMascot": { const m=avatar()!==IMG_RUN; closeSheet(); write("profile",null,{mascot:m}); toast(m?"Mascota posada":"Mascota treta"); break; }
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
     case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
