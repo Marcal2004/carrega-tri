@@ -1116,10 +1116,10 @@ function onbSummary(p){
 }
 /* ---------------- privacitat (RGPD) ---------------- */
 const PRIV_V="2026-11";
-const PRIV_CONTACT="[CORREU DE CONTACTE]";
+const PRIV_CONTACT="mrobert2004@gmail.com";
 function privacyHTML(){
   const sec=(t,b)=>`<div style="margin-top:14px"><b>${t}</b><div class="small" style="margin-top:4px;line-height:1.5;color:var(--fg)">${b}</div></div>`;
-  return sec("Responsable","Marçal Robert Pérez, entrenador (@marcal.endurance). Contacte: "+esc(PRIV_CONTACT)+".")
+  return sec("Responsable","Marçal Robert Pérez, entrenador (M.Endurance · @marcal.endurance). Contacte: "+esc(PRIV_CONTACT)+".")
    +sec("Quines dades tractem","Les del teu compte (usuari o correu), el teu perfil (nom, alçada, pes, objectius, disponibilitat i lesions que ens indiquis), l'entrenament (sessions, RPE, plans i tests) i <b>dades de salut</b>: freqüència cardíaca, VFC, son, FC en repòs i pes, incloses les que arriben del teu rellotge a través d'intervals.icu si el connectes.")
    +sec("Per a què","Exclusivament per planificar i fer el seguiment del teu entrenament i adaptar-lo al teu estat. No s'utilitzen per a res més, no es venen ni es cedeixen a tercers amb finalitats comercials.")
    +sec("Base legal","El teu consentiment explícit (art. 6.1.a i 9.2.a del Reglament General de Protecció de Dades). El pots retirar quan vulguis.")
