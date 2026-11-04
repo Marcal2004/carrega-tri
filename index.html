@@ -260,34 +260,44 @@ function acuteChronic(d, tot){
   const acwr = (fd && diffD(d,fd)>=20 && c>0) ? a/c : null;
   return {a,c,acwr};
 }
-function acwrZone(x){ if(x==null) return null; if(x>1.5) return ["Pic brusc","var(--red)"]; if(x>1.3) return ["Vigilar","var(--yellow)"]; if(x>=0.8) return ["Òptima","var(--green)"]; return ["Baixa","var(--blue)"]; }
+function acwrZone(x){ if(x==null) return null; if(x>1.5) return ["Pic brusc","#FF5A5F"]; if(x>1.3) return ["Vigilar","#FFC53D"]; if(x>=0.8) return ["Òptima","#3DDC84"]; return ["Baixa","#7FA7D9"]; }
+// Escala única per als anells: verd ≥67 · groc 34–66 · vermell <34
+const SC_COL={g:"#3DDC84",y:"#FFC53D",r:"#FF5A5F"};
+function scoreCol(p){ return p==null?"var(--mut2)":p>=67?SC_COL.g:p>=34?SC_COL.y:SC_COL.r; }
+// Línia base de VFC: les teves pròpies dades (28 dies) quan n'hi ha prou; si no, el rang manual
+function hrvBaseline(d){
+  const v=[]; for(let i=1;i<=28;i++){ const h=hrvOf(addD(d,-i)); if(h!=null) v.push(h); }
+  const own=v.length>=4?(()=>{ const m=v.reduce((a,b)=>a+b,0)/v.length, sd=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,v.length-1)); return {m,sd:Math.max(sd,m*0.05),n:v.length,src:"own"}; })():null;
+  const rg=hrvRange(), man=rg?{m:(rg.lo+rg.hi)/2,sd:Math.max((rg.hi-rg.lo)/2,1),src:"manual"}:null;
+  if(own&&own.n>=10) return own;
+  return man||own;
+}
 function recovery(d){
   const r = st.daily[d]; if(!r) return null;
   const q = Q_ITEMS.map(([k])=>r[k]).filter(v=>v!=null);
   const total = q.length===4 ? q.reduce((x,y)=>x+y,0) : null;
-  const prev=[]; for(let i=1;i<=7;i++){ const p=st.daily[addD(d,-i)]; if(p && p.hrv!=null) prev.push(p.hrv); }
-  const mean = prev.length ? prev.reduce((x,y)=>x+y,0)/prev.length : null;
-  const dev = (r.hrv!=null && mean) ? r.hrv/mean-1 : null;
-  let hrvState = dev==null ? null : dev<-0.10 ? "Molt baixa" : dev<-0.05 ? "Baixa" : "Normal";
-  const rg=hrvRange(), a7=hrv7(d); let hp=null;
-  if(rg && a7!=null){ hrvState = a7 < rg.lo-(rg.hi-rg.lo)/2 ? "Molt baixa" : a7 < rg.lo ? "Baixa" : "Normal"; hp=Math.max(0,Math.min(100,50+(a7-rg.lo)/(rg.hi-rg.lo)*50)); }
-  const qState = total==null ? null : (total<=11 || Math.min(...q)===1) ? "Mala" : total<=15 ? "Parcial" : "Bona";
+  const hv=hrvOf(d), base=hrvBaseline(d);
+  const z=(hv!=null&&base)?(hv-base.m)/base.sd:null;
   const rh=rhrOf(d), rb=rhrBase(d), rdf=(rh!=null&&rb!=null)?rh-rb:null;
-  const rhrState = rdf==null ? null : rdf>8 ? "Molt alta" : rdf>5 ? "Alta" : "Normal";
-  let decision=null, color="var(--mut)";
-  if (hrvState||qState||rhrState){
-    if (hrvState==="Molt baixa"||qState==="Mala"||rhrState==="Molt alta"){ decision="Reduir o descansar"; color="var(--red)"; }
-    else if (hrvState==="Baixa"||qState==="Parcial"||rhrState==="Alta"){ decision="Precaució"; color="var(--yellow)"; }
-    else { decision="Entrena normal"; color="var(--green)"; }
-  }
-  let pct=null;
-  const comps=[];
-  if (total!=null) comps.push((total-4)/16*100);
-  if (hp!=null) comps.push(hp); else if (dev!=null) comps.push(Math.max(0,Math.min(100,50+dev*500)));
-  const rp = rdf==null ? null : Math.max(0,Math.min(100,70-rdf*7));
-  if (rp!=null) comps.push(rp);
-  if (total!=null && comps.length) pct=Math.round(comps.reduce((a,b)=>a+b,0)/comps.length);
-  return {r,total,mean,dev,hrvState,qState,rhrState,rdf,decision,color,pct,hp};
+  const cl=x=>Math.max(0,Math.min(100,x));
+  // Cada part va de 0 a 100: un dia normal ≈ 70–80
+  const parts={
+    hrv: z==null?null:Math.round(cl(70+20*z)),
+    rhr: rdf==null?null:Math.round(cl(75-5*rdf)),
+    q:   total==null?null:Math.round(total/20*100)
+  };
+  const W={hrv:0.5,rhr:0.25,q:0.25}; let sw=0,sum=0;
+  for(const k in W) if(parts[k]!=null){ sum+=parts[k]*W[k]; sw+=W[k]; }
+  let pct = sw>=0.5 ? Math.round(sum/sw) : null;   // cal com a mínim la VFC, o FC repòs + qüestionari
+  const hrvState = z==null?null : z<=-2?"Molt baixa" : z<=-1?"Baixa" : "Normal";
+  const qState = total==null?null : (total<=11||Math.min(...q)===1)?"Mala" : total<=14?"Parcial" : "Bona";
+  const rhrState = rdf==null?null : rdf>8?"Molt alta" : rdf>5?"Alta" : "Normal";
+  // Senyals d'alarma: el percentatge no pot sortir verd
+  if(pct!=null && (hrvState==="Molt baixa"||qState==="Mala"||rhrState==="Molt alta")) pct=Math.min(pct,45);
+  const decision = pct==null?null : pct>=67?"Entrena normal" : pct>=34?"Precaució" : "Reduir o descansar";
+  const color = pct==null?"var(--mut)":scoreCol(pct);
+  const dev = (hv!=null&&base)?hv/base.m-1:null;
+  return {r,total,mean:base?.m??null,dev,z,base,hrvState,qState,rhrState,rdf,decision,color,pct,hp:parts.hrv,parts};
 }
 function macroFor(d){
   const list=macroList();
@@ -1205,7 +1215,7 @@ function vRings(d,rec,ac,z){
   const aw=ac?.acwr??null, acol=z?z[1]:"var(--mut2)";
   const cell=(act,frac,col,val,unit,lab,sub)=>`<button data-act="${act}" data-date="${d}" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;padding:0;color:var(--fg);cursor:pointer;min-width:0"><span style="position:relative;width:100%;max-width:108px;aspect-ratio:1">${ringSvg(frac,col,"100%")}<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><span class="num" style="font-family:var(--disp);font-weight:700;font-size:28px;line-height:1">${val}<span style="font-size:14px">${unit}</span></span></span></span><span style="font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">${lab} ›</span><span class="small mut" style="margin-top:-4px;text-align:center">${sub}</span></button>`;
   return `<div class="card" style="margin-top:10px;padding:16px 10px 12px"><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
-    ${cell("sleepInfo", sl!=null?sl/100:0, "#8FB3D9", sl??"–", sl!=null?"%":"", "Son", slH!=null?r1(slH)+" h":"sense dades")}
+    ${cell("sleepInfo", sl!=null?sl/100:0, sl==null?"var(--mut2)":sl>=80?SC_COL.g:sl>=60?SC_COL.y:SC_COL.r, sl??"–", sl!=null?"%":"", "Son", slH!=null?r1(slH)+" h":"sense dades")}
     ${cell("recInfo", rp!=null?rp/100:0, rcol, rp??"–", rp!=null?"%":"", "Recuperació", rec?.decision?esc(rec.decision):(d>todayStr()?"–":"fes el test"))}
     ${cell("acwrInfo", aw!=null?Math.min(1,aw/2):0, acol, aw!=null?aw.toFixed(2):"–", "", "ACWR", z?z[0]:"des del dia 21")}
   </div></div>`;
@@ -1215,13 +1225,15 @@ function rhrBase(d){ const v=[]; for(let i=1;i<=7;i++){ const x=rhrOf(addD(d,-i)
 function sheetRecovery(d){
   const rec=recovery(d), dd=st.daily[d]||{}, gg=dd.garmin||{};
   const vb=hrvBase(d), hv=(dd.hrv??gg.hrvG)!=null?Math.round(dd.hrv??gg.hrvG):null;
-  const vcol = hv==null||!vb ? "var(--fg)" : hv<vb.lo ? (hv<vb.m-vb.sd?"var(--red)":"var(--yellow)") : hv>vb.hi ? "var(--blue)" : "var(--green)";
+  const vcol = hv==null||!vb ? "var(--fg)" : hv<vb.lo ? (hv<vb.m-vb.sd?SC_COL.r:SC_COL.y) : hv>vb.hi ? "var(--blue)" : SC_COL.g;
   const vtxt = hv==null ? "sense dades" : !vb ? "sense rang" : hv<vb.lo ? "per sota del rang" : hv>vb.hi ? "per sobre del rang" : "dins del rang";
-  const rh=rhrOf(d), rb=rhrBase(d), rdf=rh!=null&&rb!=null?rh-rb:null, rhcol=rdf==null?"var(--fg)":rdf<=2?"var(--green)":rdf<=5?"var(--yellow)":"var(--red)";
-  const tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?"var(--green)": tq>=12?"var(--yellow)":"var(--red)";
+  const rh=rhrOf(d), rb=rhrBase(d), rdf=rh!=null&&rb!=null?rh-rb:null, rhcol=rdf==null?"var(--fg)":rdf<=2?SC_COL.g:rdf<=5?SC_COL.y:SC_COL.r;
+  const tq=rec?.total??null, tcol= tq==null?"var(--mut2)": tq>=16?SC_COL.g: tq>=12?SC_COL.y:SC_COL.r;
   const rp=rec?.pct??(rec?.hp!=null?Math.round(rec.hp):null);
   let h=sheetHead("Recuperació", fmtLong(d));
-  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">Combina el qüestionari del matí, la VFC respecte al teu rang i la FC en repòs respecte a la teva mitjana.</div></div></div>`;
+  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 6px"><span style="position:relative;width:96px;height:96px;flex:none">${ringSvg(rp!=null?rp/100:0, rec?.color&&rec.color!=="var(--mut)"?rec.color:"var(--mut2)", 96)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:26px">${rp??"–"}${rp!=null?'<span style="font-size:13px">%</span>':""}</span></span><div><div class="decision" style="color:${rec?.color||"var(--mut)"}">${esc(rec?.decision||"Sense dades")}</div><div class="small mut" style="margin-top:4px">VFC 50% · FC en repòs 25% · qüestionari 25%. Un dia normal surt entre el 70 i el 80%.</div></div></div>`;
+  if(rec?.parts){ const P=rec.parts, row=(l,v,w,sub)=>`<div style="display:grid;grid-template-columns:96px 1fr 44px;gap:10px;align-items:center;padding:6px 0"><span class="small">${l}<span class="mut"> · ${w}</span></span><span style="height:8px;border-radius:4px;background:var(--card2);overflow:hidden">${v!=null?`<span style="display:block;height:100%;width:${v}%;background:${scoreCol(v)}"></span>`:""}</span><b class="num" style="text-align:right">${v??"–"}</b></div>`;
+    h+=`<div class="card" style="margin-top:6px;padding:8px 14px">${row("VFC",P.hrv,"50%")}${row("FC repòs",P.rhr,"25%")}${row("Qüestionari",P.q,"25%")}</div>`; }
   h+=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">
     <div class="tile" style="padding:10px"><div class="lab">VFC</div><div class="val" style="font-size:26px;color:${vcol}">${hv??"–"}</div><div class="sub">${vb?`normal ${vb.lo}–${vb.hi}`:"ms"}</div><div class="sub" style="color:${vcol}">${vtxt}</div></div>
     <div class="tile" style="padding:10px"><div class="lab">FC repòs</div><div class="val" style="font-size:26px;color:${rhcol}">${rh??"–"}</div><div class="sub">${rb!=null?`mitjana ${Math.round(rb)}`:"ppm"}</div><div class="sub" style="color:${rhcol}">${rdf==null?(rh==null?"sense dades":""):rdf<=2?"normal":rdf<=5?`+${Math.round(rdf)} ppm`:`+${Math.round(rdf)} ppm alta`}</div></div>
