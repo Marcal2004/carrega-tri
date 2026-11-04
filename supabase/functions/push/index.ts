@@ -82,7 +82,9 @@ Deno.serve(async (req) => {
       const users = [...new Set(subs.map((s) => s.user_id))];
       const { data: days } = await admin.from("docs").select("user_id,data").eq("coll", "daily").eq("id", date).in("user_id", users);
       const doneSet = new Set((days || []).filter((d) => done(d.data)).map((d) => d.user_id));
-      const todo = subs.filter((s) => !doneSet.has(s.user_id));
+      const { data: coaches } = await admin.from("coaches").select("user_id").in("user_id", users);
+      const coachSet = new Set((coaches || []).map((c) => c.user_id));
+      const todo = subs.filter((s) => !doneSet.has(s.user_id) && !coachSet.has(s.user_id));
       const n = await send(todo, {
         title: "Control del matí ☀️",
         body: "Com t'has llevat? Fes el qüestionari, és un minut.",

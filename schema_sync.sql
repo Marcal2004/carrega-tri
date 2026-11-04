@@ -5,7 +5,7 @@ create extension if not exists pg_net;
 create extension if not exists pg_cron;
 
 select cron.unschedule('carrega-sync-garmin') where exists (select 1 from cron.job where jobname = 'carrega-sync-garmin');
-select cron.schedule('carrega-sync-garmin', '0 6,20 * * *', $$
+select cron.schedule('carrega-sync-garmin', '25 * * * *', $$
   select net.http_post(
     url := 'https://usktsnbiliacshtecvsg.supabase.co/functions/v1/intervals-sync',
     headers := '{"Content-Type":"application/json","x-cron-secret":"CANVIA_AIXO"}'::jsonb,

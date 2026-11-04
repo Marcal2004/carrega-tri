@@ -380,7 +380,7 @@ async function startSession(session){
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
   await loadCoach();
-  if(st.isCoach){ st.cview="panel"; render(); loadTpl(); loadNotes().then(render); loadAthData().then(()=>{ render(); refreshCoach(false); }); return; }
+  if(st.isCoach){ st.cview="panel"; render(); loadPush().then(render); loadTpl(); loadNotes().then(render); loadAthData().then(()=>{ render(); refreshCoach(false); }); return; }
   if(!prof().consent){ st.mode="consent"; render(); return; }
   afterConsent();
 }
@@ -411,17 +411,19 @@ async function loadPush(){
 }
 const b64u=s=>{ const p="=".repeat((4-s.length%4)%4), b=atob((s+p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(b,c=>c.charCodeAt(0)); };
 function sheetPush(){
-  const P=st.push; let h=sheetHead("Recordatori del qüestionari");
+  const P=st.push, C=st.isCoach; let h=sheetHead(C?"Avisos dels atletes":"Notificacions");
   if(!P.supported){ h+=`<p class="mut" style="margin:6px 0 12px">${isIOS&&!isStandalone?"A l'iPhone, primer afegeix la web a la pantalla d'inici (Safari › Compartir › Afegir a la pantalla d'inici) i obre-la des d'allà.":"Aquest navegador no permet notificacions."}</p>`; openSheet(h); return; }
-  h+=`<p class="mut small" style="margin:6px 0 12px">Cada dia a l'hora que triïs, si encara no has fet el qüestionari del matí, t'arribarà una notificació. Tocant-la s'obre directament.</p>
-  <div class="field"><label for="p-hour">Hora</label><select class="in-t" id="p-hour">${[5,6,7,8,9,10,11,12].map(x=>`<option value="${x}" ${P.hour===x?"selected":""}>${pad(x)}:00</option>`).join("")}</select></div>
+  if(C){ h+=`<p class="mut small" style="margin:6px 0 12px">T'arriba un avís al mòbil quan un atleta puja una activitat nova del rellotge.</p><div class="err" id="p-err"></div>
+    <button class="btn pri block" data-act="pushOn">${P.on?"Avisos activats ✓":"Activar avisos"}</button>${P.on?`<button class="btn block" style="margin-top:8px" data-act="pushTest">Enviar una prova</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="pushOff">Desactivar</button>`:""}<p class="note" style="margin-top:10px">Actívals des del mòbil, amb l'app instal·lada a la pantalla d'inici.</p>`; openSheet(h); return; }
+  h+=`<p class="mut small" style="margin:6px 0 12px">Cada dia a l'hora que triïs, si encara no has fet el qüestionari del matí, t'arribarà una notificació. També t'avisa quan arriba una activitat nova del rellotge.</p>
+  <div class="field"><label for="p-hour">Hora del recordatori</label><select class="in-t" id="p-hour">${[5,6,7,8,9,10,11,12].map(x=>`<option value="${x}" ${P.hour===x?"selected":""}>${pad(x)}:00</option>`).join("")}</select></div>
   <div class="err" id="p-err"></div>
   <button class="btn pri block" data-act="pushOn">${P.on?"Guardar hora":"Activar recordatori"}</button>
-  ${P.on?`<button class="btn block" style="margin-top:8px" data-act="pushTest">Enviar una prova</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="pushOff">Desactivar</button>`:""}`;
+  ${P.on?`<button type="button" class="toggle" style="width:100%;margin-top:10px" data-act="notifAct"><span style="text-align:left"><b>Avís d'activitat nova</b><span class="note" style="display:block;margin:0">Quan arriba un entreno del rellotge, per posar-hi l'RPE</span></span><span class="sw ${prof().notifAct!==false?"on":""}"><i></i></span></button><button class="btn block" style="margin-top:8px" data-act="pushTest">Enviar una prova</button><button class="btn block" style="margin-top:8px;color:var(--red)" data-act="pushOff">Desactivar</button>`:""}`;
   openSheet(h);
 }
 async function pushOn(){
-  const err=document.querySelector("#p-err"), hour=Number(document.querySelector("#p-hour").value);
+  const err=document.querySelector("#p-err"), hour=Number(document.querySelector("#p-hour")?.value??8);
   try{
     const perm=await Notification.requestPermission();
     if(perm!=="granted"){ err.textContent="Cal donar permís de notificacions al navegador."; return; }
@@ -430,7 +432,7 @@ async function pushOn(){
       sub=await swReg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(data.publicKey)}); }
     const {error}=await sb.from("push_subs").upsert({endpoint:sub.endpoint,user_id:st.uid,sub:sub.toJSON(),hour});
     if(error) throw error;
-    st.push.on=true; st.push.hour=hour; closeSheet(); render(); toast(`Recordatori a les ${pad(hour)}:00`);
+    st.push.on=true; st.push.hour=hour; closeSheet(); render(); toast(st.isCoach?"Avisos activats":`Recordatori a les ${pad(hour)}:00`);
   }catch(e){ err.textContent=e.message==="key"?"El servidor de notificacions encara no està instal·lat.":"No s'ha pogut activar. Torna-ho a provar."; }
 }
 async function pushOff(){
@@ -875,7 +877,7 @@ function vCoachJo(){
   let h=`<div class="card" style="display:flex;align-items:center;gap:14px;margin-top:4px"><div style="width:64px;height:64px;border-radius:50%;overflow:hidden;background:var(--card2);border:2px solid var(--brand);flex:none"><img src="${IMG_RUN}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:50% 20%"></div><div><div class="eyebrow">Entrenador</div><h1 style="margin-top:2px">${esc(userLabel(st.email))}</h1><div class="small mut">${st.athletes.length} atletes</div></div></div>`;
   h+=vCoachAthletes();
   h+=`<h2>Planificació</h2><div class="plist">${row("cTpl","","Plantilles d'entrenos",`${Object.keys(st.tpl||{}).length} guardades`)}</div>`;
-  h+=`<h2>Compte</h2><div class="plist">${row("chPass","","Canviar contrasenya","")}${row("privacy","","Política de privacitat","El que accepten els atletes en registrar-se")}${row("logout","","Tancar sessió",esc(userLabel(st.email||"")))}</div>`;
+  h+=`<h2>Compte</h2><div class="plist">${row("pushCfg","","Avisos dels atletes",st.push.on?"Activats en aquest dispositiu":"Quan pugen una activitat nova")}${row("chPass","","Canviar contrasenya","")}${row("privacy","","Política de privacitat","El que accepten els atletes en registrar-se")}${row("logout","","Tancar sessió",esc(userLabel(st.email||"")))}</div>`;
   return h;
 }
 
@@ -2405,6 +2407,7 @@ document.addEventListener("click", e=>{
     case "raceApprox": document.querySelector("#r-approx").classList.toggle("on"); break;
     case "actDetail": sheetDetail(el.dataset.id); break;
     case "pushCfg": sheetPush(); break;
+    case "notifAct": { const v=prof().notifAct===false; write("profile",null,{notifAct:v}); el.querySelector(".sw")?.classList.toggle("on",v); toast(v?"Avís d'activitat activat":"Avís d'activitat desactivat"); break; }
     case "pushOn": pushOn(); break;
     case "pushOff": pushOff(); break;
     case "pushTest": pushTest(); break;

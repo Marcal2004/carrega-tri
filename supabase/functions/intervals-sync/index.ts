@@ -3,6 +3,7 @@
 // La clau d'intervals.icu viu només als Secrets de Supabase (INTERVALS_API_KEY).
 // L'entrenador (OWNER_EMAIL) i els atletes vinculats a coach_links amb intervals_id.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import webpush from "npm:web-push@3.6.7";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -25,10 +26,14 @@ Deno.serve(async (req) => {
     if (body.action === "storeAll") {
       const secret = Deno.env.get("CRON_SECRET");
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "forbidden" }, 403);
-      const { data: links } = await admin().from("coach_links").select("athlete_id,intervals_id").not("intervals_id", "is", null);
+      const { data: links } = await admin().from("coach_links").select("athlete_id,coach_id,intervals_id").not("intervals_id", "is", null);
       const seen = new Set<string>(), out: Record<string, unknown> = {};
       for (const l of links || []) { if (seen.has(l.athlete_id)) continue; seen.add(l.athlete_id);
-        try { out[l.athlete_id] = await storeFor(l.athlete_id, String(l.intervals_id), key0); } catch (e) { out[l.athlete_id] = String((e as Error).message); } }
+        try {
+          const r: any = await storeFor(l.athlete_id, String(l.intervals_id), key0);
+          const fresh = r.fresh || []; delete r.fresh; out[l.athlete_id] = r;
+          if (fresh.length) r.notified = await notifyActivities(l.athlete_id, l.coach_id, fresh);
+        } catch (e) { out[l.athlete_id] = String((e as Error).message); } }
       return json({ ok: true, out });
     }
 
@@ -75,7 +80,9 @@ Deno.serve(async (req) => {
       if (ln && ln[0]) iid = String(ln[0].intervals_id);
       if (!iid && uid === user.id && isOwner) iid = Deno.env.get("INTERVALS_ATHLETE_ID") || "";
       if (!/^i\d+$/.test(iid)) return json({ error: "nolink" }, 403);
-      return json(await storeFor(uid, iid, key));
+      const r: any = await storeFor(uid, iid, key); const fresh = r.fresh || []; delete r.fresh;
+      if (fresh.length) { try { r.notified = await notifyActivities(uid, null, fresh); } catch (_) { /* sense avís */ } }
+      return json(r);
     }
 
     // Enviar el pla de dies concrets al calendari d'intervals.icu (i d'allà al rellotge)
@@ -183,6 +190,41 @@ const addDays = (d: string, n: number) => new Date(Date.parse(d + "T00:00:00Z") 
 const nnum = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : null);
 function mapType(t: unknown) { const u = String(t || "").toUpperCase(); if (/SWIM/.test(u)) return "Natació"; if (/RUN|TREADMILL|TRAIL/.test(u)) return "Carrera"; if (/BIK|CYCL|RIDE|SPIN|GRAVEL/.test(u)) return "Ciclisme"; if (/STRENGTH|WEIGHT|GYM|HIIT/.test(u)) return "Força"; return null; }
 
+/* ---------- avís d'activitat nova (notificació al mòbil) ---------- */
+let vapidOk: boolean | null = null;
+async function vapidReady() {
+  if (vapidOk !== null) return vapidOk;
+  const { data } = await admin().from("push_config").select("public_key,private_key").eq("id", 1).maybeSingle();
+  if (!data) return (vapidOk = false);
+  webpush.setVapidDetails("https://marcal2004.github.io/carrega-tri/", data.public_key, data.private_key);
+  return (vapidOk = true);
+}
+async function pushTo(userId: string, payload: Record<string, unknown>) {
+  const A = admin(); const { data: subs } = await A.from("push_subs").select("endpoint,sub").eq("user_id", userId);
+  let ok = 0;
+  for (const r of subs || []) {
+    try { await webpush.sendNotification(r.sub as webpush.PushSubscription, JSON.stringify(payload), { TTL: 6 * 3600 }); ok++; }
+    catch (e) { const c = (e as { statusCode?: number }).statusCode; if (c === 404 || c === 410) await A.from("push_subs").delete().eq("endpoint", r.endpoint); }
+  }
+  return ok;
+}
+function actTxt(s: any) {
+  const d = s.disc === "Natació" && s.m ? `${s.m.toLocaleString("ca-ES")} m` : s.km ? `${String(s.km).replace(".", ",")} km` : "";
+  const t = s.min >= 60 ? `${Math.floor(s.min / 60)}h${String(s.min % 60).padStart(2, "0")}` : `${s.min}′`;
+  return [s.disc, d, t].filter(Boolean).join(" · ");
+}
+async function notifyActivities(uid: string, coachId: string | null, fresh: any[]) {
+  if (!(await vapidReady())) return 0;
+  const recent = fresh.filter((s) => s.date >= addDays(madridToday(), -1));   // només d'avui o d'ahir
+  if (!recent.length) return 0;
+  const { data: p } = await admin().from("docs").select("data").eq("user_id", uid).eq("coll", "profile").eq("id", "profile").maybeSingle();
+  const prof: any = p?.data || {}; const name = prof.name || "L'atleta";
+  let n = 0;
+  const body = recent.length === 1 ? actTxt(recent[0]) : `${recent.length} activitats: ${recent.map((s) => s.disc).join(", ")}`;
+  if (prof.notifAct !== false) n += await pushTo(uid, { title: "Nova activitat 🏁", body: body + " · posa-hi l'RPE", url: "./", tag: "act-" + uid });
+  if (coachId && coachId !== uid) n += await pushTo(coachId, { title: `${name} ha entrenat`, body, url: "./", tag: "act-" + uid });
+  return n;
+}
 async function storeFor(uid: string, iid: string, key: string) {
   if (!key) throw new Error("nokey");
   const A = admin(), auth = "Basic " + btoa("API_KEY:" + key);
@@ -197,7 +239,7 @@ async function storeFor(uid: string, iid: string, key: string) {
   const up: any[] = [], now = new Date().toISOString();
   const list = (Array.isArray(acts) ? acts : []).map((a: any) => ({ ...a, disc: mapType(a.type), gid: String(a.external_id || a.id || ""), t0: Date.parse(a.start_date || a.start_date_local), sec: a.moving_time || a.elapsed_time || 0 }))
     .filter((a: any) => a.gid && a.start_date_local).sort((a: any, b: any) => a.t0 - b.t0);
-  let added = 0;
+  let added = 0; const fresh: any[] = [];
   for (const a of list) {
     if (!a.disc) continue;
     const id = "g-" + a.gid.replace(/[^A-Za-z0-9_-]/g, "");
@@ -211,7 +253,7 @@ async function storeFor(uid: string, iid: string, key: string) {
     if (a.average_heartrate && a.disc !== "Natació") s.fc = Math.round(a.average_heartrate);
     if (a.disc === "Ciclisme" && a.icu_average_watts) s.w = Math.round(a.icu_average_watts);
     if (a.disc === "Carrera") s.brick = list.some((b: any) => b.disc === "Ciclisme" && Math.abs(a.t0 - (b.t0 + (b.elapsed_time || b.sec) * 1000)) < 20 * 60000);
-    S[id] = s; sessList.push(s); up.push({ user_id: uid, coll: "sessions", id, data: s, updated_at: now }); added++;
+    S[id] = s; sessList.push(s); up.push({ user_id: uid, coll: "sessions", id, data: s, updated_at: now }); added++; fresh.push(s);
   }
   let wn = 0;
   for (const r of Array.isArray(well) ? well : []) {
@@ -231,7 +273,7 @@ async function storeFor(uid: string, iid: string, key: string) {
     if (nnum(r.weight) != null && !W[d]) up.push({ user_id: uid, coll: "weights", id: d, data: { kg: Math.round(r.weight * 10) / 10, note: "Garmin" }, updated_at: now });
   }
   for (let i = 0; i < up.length; i += 200) { const { error } = await A.from("docs").upsert(up.slice(i, i + 200)); if (error) throw new Error(error.message); }
-  return { added, wellness: wn };
+  return { added, wellness: wn, fresh };
 }
 
 // ---------- enviar al rellotge ----------
