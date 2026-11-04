@@ -500,10 +500,10 @@ document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==
 function vLogin(){
   const m=st.loginMode||"in";
   const t={in:["Entra","Entrar"],up:["Crea el compte","Crear compte"],reset:["Recupera la contrasenya","Enviar enllaç"],newpass:["Nova contrasenya","Guardar"]}[m];
-  return `<div class="photo main" style="height:200px"><img src="${IMG_BIKE}" alt=""><div class="ov"><div class="eyebrow">Càrrega Tri</div><h1>${t[0]}</h1></div></div>
+  return `<div style="padding:30px 8px 18px;display:flex;flex-direction:column;align-items:center;gap:22px"><div style="width:100%;max-width:340px">${LOGO_BANNER}</div><h1 style="margin:0;text-align:center">${t[0]}</h1></div>
   <div class="card"><form id="lf" onsubmit="return false">
   ${m==="up"?`<div class="field" style="margin-top:0"><label for="l-code">Codi d'invitació</label><input class="in-t" id="l-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="El que t'ha donat el teu entrenador" style="text-transform:uppercase;letter-spacing:3px"></div>`:""}
-  ${m!=="newpass"?`<div class="field" style="margin-top:${m==="up"?"14px":"0"}"><label for="l-email">${m==="reset"?"Correu":"Usuari o correu"}</label><input class="in-t" id="l-email" type="${m==="reset"?"email":"text"}" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="${m==="reset"?"el-teu@correu.com":"marcal"}"></div>`:""}
+  ${m!=="newpass"?`<div class="field" style="margin-top:${m==="up"?"14px":"0"}"><label for="l-email">${m==="reset"?"Correu":"Usuari o correu"}</label><input class="in-t" id="l-email" type="${m==="reset"?"email":"text"}" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="${m==="reset"?"el-teu@correu.com":"el-teu-usuari"}"></div>`:""}
   ${m!=="reset"?`<div class="field"><label for="l-pass">Contrasenya</label><input class="in-t" id="l-pass" type="password" autocomplete="${m==="in"?"current-password":"new-password"}" minlength="6" required></div>`:""}
   ${m==="up"?`<label style="display:flex;gap:10px;align-items:flex-start;margin-top:14px;cursor:pointer"><input type="checkbox" id="l-consent" style="width:22px;height:22px;flex:none;margin-top:2px"><span class="small" style="line-height:1.45">Accepto la <a href="#" data-act="privacy">política de privacitat</a> i consento el tractament de les meves dades, incloses les de salut, per al seguiment del meu entrenament.</span></label>`:""}
   <div class="err" id="l-err"></div><button class="btn pri block" data-act="login">${t[1]}</button></form>
@@ -1140,7 +1140,7 @@ function privacyHTML(){
 }
 function sheetPrivacy(){ openSheet(sheetHead("Política de privacitat","Versió "+PRIV_V)+privacyHTML()+`<p class="note" style="margin-top:14px">${prof().consent?`Vas acceptar aquesta política el ${esc(fmtShort(String(prof().consent.at||"").slice(0,10)))}.`:""}</p>`); }
 function vConsent(){
-  return `<div class="photo main" style="height:160px"><img src="${IMG_BIKE}" alt=""><div class="ov"><div class="eyebrow">Càrrega Tri</div><h1>Les teves dades</h1></div></div>
+  return `<div class="photo main" style="height:160px"><img src="${IMG_BIKE}" alt=""><div class="ov"><div class="eyebrow">M.Endurance</div><h1>Les teves dades</h1></div></div>
   <div class="card"><p style="margin:0;line-height:1.5">Per fer-te el seguiment, l'app tracta dades de salut (FC, VFC, son, pes…). Abans de continuar, llegeix i accepta la política de privacitat.</p>
   <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--brand);font-weight:600">Llegir la política de privacitat</summary>${privacyHTML()}</details>
   <label style="display:flex;gap:10px;align-items:flex-start;margin-top:16px;cursor:pointer"><input type="checkbox" id="cs-ok" style="width:22px;height:22px;flex:none;margin-top:2px"><span class="small" style="line-height:1.45">He llegit la política de privacitat i <b>consento el tractament de les meves dades, incloses les de salut</b>, per al seguiment del meu entrenament.</span></label>
@@ -2413,7 +2413,7 @@ document.addEventListener("click", e=>{
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
     case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
-    case "copyCode": { const msg=`Hola! Per entrar a Càrrega Tri: obre https://marcal2004.github.io/carrega-tri/ , toca «Crear un compte» i posa aquest codi d'invitació: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
+    case "copyCode": { const msg=`Hola! Per entrar a M.Endurance: obre https://marcal2004.github.io/carrega-tri/ , toca «Crear un compte» i posa aquest codi d'invitació: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
     case "coachLink": if(!st.myLink) sheetRedeem(); else toast("Ja estàs connectat amb el teu entrenador"); break;
     case "redeem": redeem(); break;
     case "athSettings": sheetAthlete(st.viewUid); break;

@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
       if (!user) return json({ error: "auth" }, 401);
       await vapid();
       const { data: rows } = await admin.from("push_subs").select("endpoint,sub").eq("user_id", user.id);
-      const n = await send(rows || [], { title: "Càrrega Tri", body: "Les notificacions funcionen ✅", url: "./", tag: "test" });
+      const n = await send(rows || [], { title: "M.Endurance", body: "Les notificacions funcionen ✅", url: "./", tag: "test" });
       return json({ sent: n });
     }
 
