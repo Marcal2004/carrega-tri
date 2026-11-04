@@ -219,13 +219,20 @@ const r0 = n => Math.round(n); const r1 = n => Math.round(n*10)/10;
 const fmtN = n => n==null||!isFinite(n) ? "–" : Math.round(n).toLocaleString("ca-ES");
 const prof = () => st.profile || {};
 const okImg = v => typeof v==="string" && v.startsWith("data:image/");
-const avatar = () => okImg(prof().photo) ? prof().photo : IMG_RUN;
+// Avatar per defecte: inicials en un cercle daurat; la mascota només si l'atleta la tria
+function initialsImg(name){
+  const t=String(name||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join("")||"·";
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0E0E0F"/><circle cx="50" cy="50" r="46" fill="none" stroke="#C8A96A" stroke-width="3"/><text x="50" y="50" dy=".35em" text-anchor="middle" font-family="Georgia,serif" font-size="${t.length>1?38:44}" fill="#C8A96A">${t.replace(/[<&>"]/g,"")}</text></svg>`;
+  return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+function avatarOf(p){ p=p||{}; return okImg(p.photo)&&!p.photo.startsWith("data:image/svg")?p.photo:p.mascot?IMG_RUN:initialsImg(p.name); }
+const avatar = () => avatarOf(prof());
 const cover = () => okImg(prof().cover) ? prof().cover : IMG_BIKE;
 function sheetPhoto(kind="photo"){
   if (st.viewUid){ toast("La foto la canvia l'atleta des del seu compte."); return; }
   const isC=kind==="cover";
   openSheet(sheetHead(isC?"Foto d'Avui":"Foto de perfil")+`<div style="display:flex;justify-content:center;margin:6px 0 14px">${isC?`<img src="${cover()}" alt="" style="width:100%;height:150px;border-radius:14px;object-fit:cover">`:`<img src="${avatar()}" alt="" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)">`}</div>
-  <button class="btn pri block" data-act="pickPhoto" data-k="${kind}">Triar una foto</button>${prof()[kind]?`<button class="btn block" style="margin-top:8px" data-act="delPhoto" data-k="${kind}">Treure la foto</button>`:""}`);
+  <button class="btn pri block" data-act="pickPhoto" data-k="${kind}">Triar una foto</button>${!isC?`<button class="btn block" style="margin-top:8px" data-act="toggleMascot">${prof().mascot?"Treure la mascota":"Fer servir la mascota"}</button>`:""}${prof()[kind]?`<button class="btn block" style="margin-top:8px" data-act="delPhoto" data-k="${kind}">Treure la foto</button>`:""}`);
 }
 function pickPhoto(kind="photo"){
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*";
@@ -375,7 +382,11 @@ async function startSession(session){
   if(!prof().consent){ st.mode="consent"; render(); return; }
   afterConsent();
 }
+// Una sola vegada: el compte d'en Marçal conserva la mascota i el seu lema
+const LEGACY_UID="81627707-2287-4cbc-bc2b-c71de0326fce";
+function legacyProfile(){ if(st.uid===LEGACY_UID && !st.viewUid && prof().motto===undefined) write("profile",null,{mascot:true,motto:"QUE FALLE OTRO"}); }
 function afterConsent(){
+  legacyProfile();
   afterOnb();
 }
 function afterOnb(){
@@ -722,7 +733,7 @@ async function loadAthData(){
     while(true){ const {data,error}=await sb.from("docs").select("user_id,coll,id,data").in("user_id",ids).neq("coll","profile").range(from,from+999); if(error) throw error;
       for(const r of data){ if(out[r.user_id]&&out[r.user_id][r.coll]) out[r.user_id][r.coll][r.id]=r.data; }
       if(data.length<1000) break; from+=1000; }
-    const {data:pr}=await sb.from("docs").select("user_id,name:data->>name,photo:data->>photo,hrvLo:data->hrvLo,hrvHi:data->hrvHi,coefs:data->coefs,trans:data->trans,start:data->>start,lthr:data->lthr,ftp:data->ftp,level:data->>level,device:data->>device,power:data->power,onb:data->onb").eq("coll","profile").in("user_id",ids);
+    const {data:pr}=await sb.from("docs").select("user_id,name:data->>name,photo:data->>photo,mascot:data->mascot,hrvLo:data->hrvLo,hrvHi:data->hrvHi,coefs:data->coefs,trans:data->trans,start:data->>start,lthr:data->lthr,ftp:data->ftp,level:data->>level,device:data->>device,power:data->power,onb:data->onb").eq("coll","profile").in("user_id",ids);
     (pr||[]).forEach(r=>{ if(out[r.user_id]){ const {user_id,...p}=r; Object.keys(p).forEach(k=>p[k]==null&&delete p[k]); out[r.user_id].profile=p; } });
   }catch(e){ toast("No s'han pogut carregar les dades dels atletes."); }
   st.athData=out; st.athLoaded=Date.now();
@@ -734,7 +745,7 @@ function withAth(uid,fn){
   try{ return fn(); } finally { st.profile=keep.profile; ATH_COLS.forEach(c=>st[c]=keep[c]); }
 }
 function athName(a){ return a.name||userLabel(a.athlete_email)||"Atleta"; }
-function athAvatar(uid,size=44){ const p=st.athData?.[uid]?.profile||{}; const src=(typeof p.photo==="string"&&p.photo.startsWith("data:image/"))?p.photo:IMG_RUN; return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:${p.photo?"50% 50%":"50% 20%"};background:var(--card2);flex:none">`; }
+function athAvatar(uid,size=44){ const p=st.athData?.[uid]?.profile||{}; const src=avatarOf(p); return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:${p.photo?"50% 50%":"50% 20%"};background:var(--card2);flex:none">`; }
 
 /* resum d'un atleta per al panell */
 function athSummary(uid){
@@ -2146,7 +2157,7 @@ function vDayPlan(){
   h+=`</div><button class="btn ghost" style="padding:8px 10px;flex:none" data-act="dayWk" data-d="7" aria-label="Setmana següent">›</button></div>`;
   { const nx=raceList().filter(r=>r.date>=today)[0];
     if(nx){ const dd=daysTo(nx.date);
-      h+=`<button data-act="goRaces" style="width:100%;margin-top:14px;padding:14px 16px;border-radius:16px;border:1px solid ${PRIO_COL[nx.prio]||"var(--brand)"};background:linear-gradient(135deg,color-mix(in srgb, ${PRIO_COL[nx.prio]||"var(--brand)"} 22%, var(--card)),var(--card));display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;color:var(--fg)"><span style="min-width:0"><span class="eyebrow">🏁 Propera cursa</span><b style="display:block;font-size:18px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nx.name)}</b><span class="small mut">${esc(fmtShort(nx.date)+yr(nx.date))}${nx.approx?" · aprox.":""}</span><span style="display:block;margin-top:6px;font-family:var(--disp);font-weight:700;font-style:italic;letter-spacing:.04em;color:var(--brand)">«QUE FALLE OTRO»</span></span><span style="text-align:right;flex:none"><span class="num" style="display:block;font-family:var(--disp);font-weight:700;font-size:44px;line-height:.9">${dd}</span><span class="small mut">${dd===0?"és avui!":dd===1?"dia":"dies"}</span></span></button>`; } }
+      h+=`<button data-act="goRaces" style="width:100%;margin-top:14px;padding:14px 16px;border-radius:16px;border:1px solid ${PRIO_COL[nx.prio]||"var(--brand)"};background:linear-gradient(135deg,color-mix(in srgb, ${PRIO_COL[nx.prio]||"var(--brand)"} 22%, var(--card)),var(--card));display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;color:var(--fg)"><span style="min-width:0"><span class="eyebrow">🏁 Propera cursa</span><b style="display:block;font-size:18px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nx.name)}</b><span class="small mut">${esc(fmtShort(nx.date)+yr(nx.date))}${nx.approx?" · aprox.":""}</span>${prof().motto?`<span style="display:block;margin-top:6px;font-family:var(--disp);font-weight:700;font-style:italic;letter-spacing:.04em;color:var(--brand)">«${esc(prof().motto)}»</span>`:""}</span><span style="text-align:right;flex:none"><span class="num" style="display:block;font-family:var(--disp);font-weight:700;font-size:44px;line-height:.9">${dd}</span><span class="small mut">${dd===0?"és avui!":dd===1?"dia":"dies"}</span></span></button>`; } }
   h+=`<div class="row between" style="margin-top:22px"><h2 style="margin:0">${esc(title)}</h2><button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="editDay" data-date="${sel}">Editar</button></div>`;
   h+=`<div class="stack" style="margin-top:10px">`;
   if(!items.length) h+=`<div class="empty">${st.dayplan[sel]?"Dia de descans":"Res planificat aquest dia."}${note?`<div class="small" style="margin-top:6px">${esc(note)}</div>`:""}</div>`;
@@ -2265,6 +2276,7 @@ function sheetSettings(){
   <div class="field"><label for="st-start">Inici de temporada (dilluns)</label><input class="in-t" id="st-start" type="date" value="${esc(p.start||monday(todayStr()))}"><div class="note">La setmana 1 comença aquest dilluns.</div></div>
   <div class="f2"><div class="field"><label for="st-vlo">VFC normal · mín. (ms)</label><input class="in-t" id="st-vlo" type="number" inputmode="numeric" value="${p.hrvLo??""}" placeholder="63"></div><div class="field"><label for="st-vhi">VFC normal · màx. (ms)</label><input class="in-t" id="st-vhi" type="number" inputmode="numeric" value="${p.hrvHi??""}" placeholder="75"></div></div><div class="note">El rang del teu rellotge (a Garmin, «Estat de la VFC»). Si el deixes buit, es calcula amb els teus últims 7 dies.</div>
   <div class="f2"><div class="field"><label for="st-h">Alçada (m)</label><input class="in-t" id="st-h" type="number" inputmode="decimal" step="0.01" value="${p.height??""}" placeholder="1.75"></div><div class="field"><label for="st-t">Pes objectiu (kg)</label><input class="in-t" id="st-t" type="number" inputmode="decimal" step="0.1" value="${p.target??""}"></div></div>
+  <div class="field"><label for="st-motto">Lema personal</label><input class="in-t" id="st-motto" maxlength="40" value="${esc(p.motto||"")}" placeholder="Surt al compte enrere de la cursa"><div class="note">Opcional. Una frase curta que et motivi.</div></div>
   <div class="err" id="st-err"></div><button class="btn pri block" data-act="saveSettings">Guardar</button>
   <h2 style="margin-top:26px">Exportar</h2><p class="note">Descarrega totes les dades en un Excel (sessions, control diari, pes, pla, macrocicles i tests).</p><button class="btn block" style="margin-top:8px" data-act="export">Exportar a Excel</button>`;
   openSheet(h);
@@ -2276,7 +2288,7 @@ function saveSettings(){
   const height=num(g("st-h")), target=num(g("st-t")), hrvLo=num(g("st-vlo")), hrvHi=num(g("st-vhi"));
   if((hrvLo==null)!==(hrvHi==null)||(hrvLo!=null&&(hrvLo<5||hrvHi>300||hrvHi<=hrvLo))){ err.textContent="Posa el rang de VFC amb el mínim i el màxim (el màxim ha de ser més gran)."; return; }
   if(height!=null&&(height<1||height>2.5)){ err.textContent="Posa l'alçada en metres, per exemple 1.75."; return; }
-  closeSheet(); write("profile",null,{name:g("st-name").trim(),start,height,target,hrvLo,hrvHi,coefs:coefs(),trans:trans()}); toast("Ajustos guardats");
+  closeSheet(); write("profile",null,{name:g("st-name").trim(),motto:g("st-motto").trim(),start,height,target,hrvLo,hrvHi,coefs:coefs(),trans:trans()}); toast("Ajustos guardats");
 }
 function sheetCoef(){
   const c=coefs(), t=trans(); sheetState={kind:"coef"};
@@ -2397,6 +2409,7 @@ document.addEventListener("click", e=>{
     case "pushTest": pushTest(); break;
     case "cover": sheetPhoto("cover"); break;
     case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
+    case "toggleMascot": { const m=!prof().mascot; closeSheet(); write("profile",null,{mascot:m}); toast(m?"Mascota posada":"Mascota treta"); break; }
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
     case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
