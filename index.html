@@ -1239,6 +1239,7 @@ function sheetRecovery(d){
     <div class="tile" style="padding:10px"><div class="lab">FC repòs</div><div class="val" style="font-size:26px;color:${rhcol}">${rh??"–"}</div><div class="sub">${rb!=null?`mitjana ${Math.round(rb)}`:"ppm"}</div><div class="sub" style="color:${rhcol}">${rdf==null?(rh==null?"sense dades":""):rdf<=2?"normal":rdf<=5?`+${Math.round(rdf)} ppm`:`+${Math.round(rdf)} ppm alta`}</div></div>
     <div class="tile" style="padding:10px"><div class="lab">Test</div><div class="val" style="font-size:26px;color:${tcol}">${tq??"–"}</div><div class="sub">${tq!=null?"/20":"no fet"}</div></div></div>`;
   if(tq!=null) h+=`<div class="card" style="margin-top:10px">${Q_ITEMS.map(([k,l])=>`<div class="kv"><span>${esc(l)}</span><b>${dd[k]??"–"}/5</b></div>`).join("")}</div>`;
+  if(d===todayStr()&&!st.viewUid&&rec?.pct!=null&&dayItems(d).length) h+=`<button class="btn block" style="margin-top:12px" data-act="recPrompt" data-date="${d}">Adaptar l'entreno d'avui</button>`;
   if(d<=todayStr()) h+=`<button class="btn pri block" style="margin-top:12px" data-act="morning" data-date="${d}">${tq!=null?"Editar qüestionari":"Fer el qüestionari"}</button>`;
   openSheet(h);
 }
@@ -1634,6 +1635,63 @@ function saveMorning(){
   const d=sheetState.date, prevD=st.daily[d]||{};
   const data={...prevD, hrv: prevD.hrv ?? prevD.garmin?.hrvG ?? null, sleepScore, rhr}; delete data.bb; if(data.hrv!=null && !data.hrvSrc) data.hrvSrc="garmin"; for(const [k] of Q_ITEMS) data[k]=sheetState[k];
   if (kg!=null && kg!==st.weights[d]?.kg) write("weights",d,{kg,note:st.weights[d]?.note||""}); closeSheet(); write("daily",d,data); toast("Control del matí guardat");
+  if(!st.viewUid && d===todayStr()) setTimeout(()=>recPrompt(d),400);
+}
+/* ---------------- adaptar l'entreno segons la recuperació ---------------- */
+const ADJ_F=0.7;   // "més curt": un 30% menys de volum
+function scaleWatch(txt,f){
+  return String(txt||"").split("\n").map(l=>{
+    if(!/^\s*-\s/.test(l)) return l;
+    return l.replace(/(\d+)h(\d+)m|(\d+)h\b|(\d+)m(?!tr)\b|(\d+)s\b|(\d+)mtr\b|(\d+(?:\.\d+)?)km\b/, (all,h1,m1,h2,m2,s2,mt,km)=>{
+      if(h1!=null||h2!=null||m2!=null){ const min=Math.max(1,Math.round(((+(h1||h2||0))*60+(+(m1||m2||0)))*f)); return min>=60?`${Math.floor(min/60)}h${min%60?(min%60)+"m":""}`:`${min}m`; }
+      if(s2!=null) return /Rest|rest|recup/i.test(l)?all:`${Math.max(5,Math.round(+s2*f/5)*5)}s`;
+      if(mt!=null){ const v=+mt*f, st_=v>=100?50:25; return `${Math.max(25,Math.round(v/st_)*st_)}mtr`; }
+      return `${Math.max(0.5,Math.round(+km*f*2)/2)}km`;
+    });
+  }).join("\n");
+}
+function easyItem(it){
+  const m=Math.min(60,Math.round((it.min||45)*0.8/5)*5)||30;
+  if(it.disc==="Força") return {...it,title:"Mobilitat suau",min:Math.min(m,30),warm:"",main:"Mobilitat i estiraments suaus, sense càrrega",cool:"",detail:"Mobilitat suau",watch:""};
+  const lab={Carrera:"Rodatge",Ciclisme:"Bici",Natació:"Natació"}[it.disc]||it.disc;
+  const step=it.disc==="Natació"?`- ${m}m 70-80% Pace`:`- ${m}m 65-80% LTHR`;
+  return {...it,title:`${lab} suau ${fmtMinH(m)}`,min:m,warm:"",main:"Tot en Z1–Z2, a ritme de conversa",cool:"",detail:"Tot en Z1–Z2, a ritme de conversa",watch:step};
+}
+function shortItem(it){
+  const m=it.min?Math.max(10,Math.round(it.min*ADJ_F/5)*5):it.min;
+  const note=` (−${Math.round((1-ADJ_F)*100)}%)`;
+  return {...it,min:m,main:it.main?it.main+note:it.main,detail:it.detail?it.detail+note:it.detail,watch:it.watch?scaleWatch(it.watch,ADJ_F):it.watch};
+}
+function applyAdj(d,type){
+  const doc=st.dayplan[d]; if(!doc) return;
+  const rec=recovery(d), keep=["title","min","warm","main","cool","notes","detail","watch"];
+  const items=(doc.items||[]).map(it=>{
+    if(!it||!it.disc) return it;
+    const base=it.orig?{...it,...it.orig}:{...it}; delete base.orig; delete base.adj;
+    if(type==="keep") return base;
+    const orig={}; for(const k of keep) if(base[k]!==undefined) orig[k]=base[k];
+    const nu=type==="suau"?easyItem(base):shortItem(base);
+    return {...nu,orig,adj:{type,pct:rec?.pct??null,at:new Date().toISOString()}};
+  });
+  closeSheet(); write("dayplan",d,{...doc,items});
+  toast(type==="keep"?"Entreno sense canvis":type==="suau"?"Entreno canviat per un de suau":"Entreno reduït un 30%");
+}
+function recPrompt(d){
+  const rec=recovery(d), items=dayItems(d); if(!rec||rec.pct==null||!items.length) return;
+  const p=rec.pct, col=scoreCol(p), zone=p>=67?"g":p>=34?"y":"r";
+  const adjd=items.some(it=>it.adj);
+  const opt=(type,title,sub,pri)=>`<button class="btn ${pri?"pri":""} block" style="margin-top:8px;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 16px" data-act="recAdj" data-date="${d}" data-t="${type}"><span>${title}</span><span style="font-family:var(--body,inherit);text-transform:none;letter-spacing:0;font-weight:400;font-size:13px;opacity:.8">${sub}</span></button>`;
+  let h=sheetHead("Com està el cos avui?", fmtLong(d));
+  h+=`<div style="display:flex;align-items:center;gap:16px;margin:10px 0 8px"><span style="position:relative;width:84px;height:84px;flex:none">${ringSvg(p/100,col,84)}<span class="num" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:24px">${p}<span style="font-size:12px">%</span></span></span><div><div class="decision" style="color:${col}">${esc(rec.decision)}</div><div class="small mut" style="margin-top:4px">${zone==="g"?"Estàs recuperat: fes l'entreno tal com està.":zone==="y"?"Recuperació justa: pots mantenir-lo o fer-lo més curt.":"Recuperació baixa: millor afluixar avui."}</div></div></div>`;
+  h+=`<div class="card" style="padding:8px 14px">${items.map(it=>`<div class="kv"><span>${esc(it.title||it.disc)}</span><b class="num">${it.min?fmtMinH(it.min):""}</b></div>`).join("")}</div>`;
+  if(zone==="g") h+=`<button class="btn pri block" style="margin-top:12px" data-act="recAdj" data-date="${d}" data-t="keep">${adjd?"Tornar a l'entreno original":"D'acord"}</button>`;
+  else {
+    h+=opt("keep",adjd?"Tornar a l'entreno original":"Mantenir l'entreno",adjd?"Desfà el canvi d'avui":"Tal com està planificat",zone==="y"&&!adjd);
+    h+=opt("curt","Fer-lo més curt",`Mateixa intensitat, un ${Math.round((1-ADJ_F)*100)}% menys de temps`,zone==="r");
+    if(zone==="r") h+=opt("suau","Canviar-lo per un de suau","Tot en Z1–Z2, màxim 1 h",false);
+  }
+  h+=`<p class="note" style="margin-top:10px">El canvi s'envia sol al rellotge. El pots desfer tornant a obrir aquesta finestra des de l'anell de recuperació.</p>`;
+  openSheet(h);
 }
 
 function sheetSession(id, date){
@@ -2060,7 +2118,7 @@ function vDayPlan(){
   h+=`<div class="stack" style="margin-top:10px">`;
   if(!items.length) h+=`<div class="empty">${st.dayplan[sel]?"Dia de descans":"Res planificat aquest dia."}${note?`<div class="small" style="margin-top:6px">${esc(note)}</div>`:""}</div>`;
   else {
-    h+=dayMatches(sel).map(({it:t,idx,m})=>{ const S=itemStatus(sel,t,m), [lab,col]=stInfo(S.k); return `<button class="card" data-act="planItem" data-date="${sel}" data-i="${idx}" style="padding:12px;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border-left:4px solid ${col};border-radius:0 14px 14px 0">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}</b><span class="small mut num" style="white-space:nowrap">${t.min?fmtMinH(t.min):""}</span></div>${workPreview(t)?`<div class="small mut" style="margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(workPreview(t))}</div>`:""}<div class="small mut" style="margin-top:6px">Toca per veure ritmes i FC ›</div></div></button>`; }).join("");
+    h+=dayMatches(sel).map(({it:t,idx,m})=>{ const S=itemStatus(sel,t,m), [lab,col]=stInfo(S.k); return `<button class="card" data-act="planItem" data-date="${sel}" data-i="${idx}" style="padding:12px;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border-left:4px solid ${col};border-radius:0 14px 14px 0">${discIcon(t.disc)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px;align-items:flex-start"><b style="font-weight:600">${esc(t.title||t.disc)}${t.adj?` <span class="pill" style="font-size:11px;vertical-align:middle;color:${t.adj.type==="suau"?SC_COL.r:SC_COL.y};border-color:currentColor">${t.adj.type==="suau"?"Canviat a suau":"Reduït"}</span>`:""}</b><span class="small mut num" style="white-space:nowrap">${t.min?fmtMinH(t.min):""}</span></div>${workPreview(t)?`<div class="small mut" style="margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(workPreview(t))}</div>`:""}<div class="small mut" style="margin-top:6px">Toca per veure ritmes i FC ›</div></div></button>`; }).join("");
     if(note) h+=`<div class="note" style="margin:0 2px">${esc(note)}</div>`;
   }
   return h+`</div>`;
@@ -2238,6 +2296,8 @@ document.addEventListener("click", e=>{
     case "brick": { const root=document.querySelector(".sheet"); readSess(root); sheetState.brick=!sheetState.brick; sheetSession.rebuild(); break; }
     case "morning": sheetMorning(el.dataset.date||todayStr()); break;
     case "saveMorning": saveMorning(); break;
+    case "recAdj": applyAdj(el.dataset.date, el.dataset.t); break;
+    case "recPrompt": recPrompt(el.dataset.date); break;
     case "wk": st.weekRef = el.dataset.d==="0" ? monday(todayStr()) : addD(st.weekRef, Number(el.dataset.d)); render(); break;
     case "range": st.chartRange=Number(el.dataset.n); render(); break;
     case "plaTab": st.plaTab=el.dataset.t; render(); break;
