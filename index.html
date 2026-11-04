@@ -388,6 +388,7 @@ async function startSession(session){
 function legacyProfile(){ if(st.uid===LEGACY_UID && !st.viewUid && prof().motto===undefined) write("profile",null,{mascot:true,motto:"QUE FALLE OTRO"}); }
 function afterConsent(){
   legacyProfile();
+  if(!prof().welcomed && st.uid!==LEGACY_UID){ st.mode="welcome"; st.wStep=0; render(); window.scrollTo(0,0); return; }
   afterOnb();
 }
 function afterOnb(){
@@ -1142,6 +1143,31 @@ function privacyHTML(){
    +sec("Els teus drets","Accés, rectificació, supressió, oposició, limitació, portabilitat i retirada del consentiment, escrivint a "+esc(PRIV_CONTACT)+". Si no estàs d'acord amb la resposta, pots reclamar a l'Agència Espanyola de Protecció de Dades (aepd.es).");
 }
 function sheetPrivacy(){ openSheet(sheetHead("Política de privacitat","Versió "+PRIV_V)+privacyHTML()+`<p class="note" style="margin-top:14px">${prof().consent?`Vas acceptar aquesta política el ${esc(fmtShort(String(prof().consent.at||"").slice(0,10)))}.`:""}</p>`); }
+/* ---------------- benvinguda per a l'atleta nou ---------------- */
+const WELCOME=[
+ {icon:"👋",t:"Benvingut/da a M.Endurance",intro:"Aquesta és l'app on seguiràs l'entrenament amb el teu entrenador. En tres passos la tens a punt.",
+  items:[["Avui","Cada matí fes el qüestionari (1 minut). L'app calcula la teva recuperació i et diu si cal adaptar l'entreno del dia."],
+         ["Setmana","El pla de la setmana, el temps entrenat i la càrrega de cada disciplina."],
+         ["Calendari","El mes sencer, les teves competicions i l'anàlisi."],
+         ["Jo","El teu perfil, zones, ritmes i tests."]]},
+ {icon:"⌚",t:"Connecta el rellotge",intro:"Els entrenos t'arriben sols al rellotge i les activitats pugen soles a l'app. Es fa a través d'intervals.icu (gratuït).",
+  items:[["1 · Crea el compte","Entra a intervals.icu i registra't (pots fer-ho amb el compte de Garmin o Strava)."],
+         ["2 · Connecta el rellotge","A Settings, connecta Garmin Connect o Coros, i activa que es pugin les activitats i els entrenos planificats."],
+         ["3 · Afegeix el teu entrenador","Envia-li una sol·licitud al teu entrenador i, quan l'accepti, a la pàgina de seguidors canvia'l de seguidor a «Coach». Sense això, no et pot enviar entrenos."],
+         ["4 · Passa-li el teu ID","El trobaràs a la URL del teu perfil (comença per «i» i números). El teu entrenador el posarà a la teva fitxa."]]},
+ {icon:"📲",t:"Instal·la l'app al mòbil",intro:"Així la tindràs amb icona a la pantalla d'inici, a pantalla completa i amb notificacions.",
+  items:[["iPhone","Obre-la amb Safari › botó Compartir › «Afegeix a la pantalla d'inici». Després obre-la sempre des de la icona."],
+         ["Android","Obre-la amb Chrome › menú ⋮ › «Instal·la l'aplicació»."],
+         ["Notificacions","A Jo › Notificacions activa el recordatori del qüestionari i l'avís quan arriba una activitat nova."]]}];
+function vWelcome(){
+  const i=Math.max(0,Math.min(WELCOME.length-1,st.wStep||0)), w=WELCOME[i], last=i===WELCOME.length-1;
+  return `<div style="padding:22px 4px 6px;display:flex;justify-content:center"><div style="width:100%;max-width:300px">${LOGO_BANNER}</div></div>
+  <div style="display:flex;justify-content:center;gap:6px;margin:8px 0 14px">${WELCOME.map((_,k)=>`<span style="width:${k===i?22:8}px;height:8px;border-radius:4px;background:${k===i?"#C8A96A":"var(--card2)"}"></span>`).join("")}</div>
+  <div class="card"><div style="font-size:34px;line-height:1">${w.icon}</div><h1 style="margin:10px 0 6px;font-size:26px">${esc(w.t)}</h1><p class="mut" style="margin:0 0 10px;line-height:1.5">${esc(w.intro)}</p>
+  ${w.items.map(([a,b])=>`<div style="padding:10px 0;border-top:1px solid var(--line)"><b style="display:block;color:#C8A96A">${esc(a)}</b><span class="small" style="line-height:1.5">${esc(b)}</span></div>`).join("")}
+  <div class="row" style="gap:8px;margin-top:14px">${i>0?`<button class="btn" style="flex:1" data-act="wNav" data-d="-1">Enrere</button>`:`<button class="btn ghost" style="flex:1" data-act="wDone">Saltar</button>`}<button class="btn pri" style="flex:2" data-act="${last?"wDone":"wNav"}" data-d="1">${last?"Començar":"Següent"}</button></div></div>`;
+}
+function welcomeDone(){ st.wStep=0; const first=!prof().welcomed; st.mode="db"; if(first){ write("profile",null,{welcomed:new Date().toISOString()}); afterOnb(); } else render(); window.scrollTo(0,0); }
 function vConsent(){
   return `<div class="photo main" style="height:160px"><img src="${IMG_BIKE}" alt=""><div class="ov"><div class="eyebrow">M.Endurance</div><h1>Les teves dades</h1></div></div>
   <div class="card"><p style="margin:0;line-height:1.5">Per fer-te el seguiment, l'app tracta dades de salut (FC, VFC, son, pes…). Abans de continuar, llegeix i accepta la política de privacitat.</p>
@@ -1526,7 +1552,7 @@ function vProfile(){
     h+=`<h2>Atletes</h2><div class="plist">${st.athletes.map(a=>row("viewAth","",esc(a.name||a.athlete_email||"Atleta"),(a.name?esc(a.athlete_email||"")+" · ":"")+devTxt(a),` data-id="${a.athlete_id}"`)).join("")}${row("invite","","+ Convidar atleta","Genera un codi d'invitació")}</div>`;
   }
   const syncSub=st.garmin.state==="sync"?"Sincronitzant…":st.garmin.state==="error"?esc(st.garmin.msg):st.garmin.last?"Últim cop "+pad(st.garmin.last.getHours())+":"+pad(st.garmin.last.getMinutes())+" · "+st.garmin.nAct+" act. · VFC "+(st.garmin.lastHrv?fmtShort(st.garmin.lastHrv):"cap"):"Activitats, VFC i son via intervals.icu";
-  h+=`<h2>El meu perfil</h2><div class="plist">${row("settings","","Dades personals","Nom, lema, inici de temporada, alçada, pes objectiu i rang de VFC")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}</div>`;
+  h+=`<h2>El meu perfil</h2><div class="plist">${row("settings","","Dades personals","Nom, lema, inici de temporada, alçada, pes objectiu i rang de VFC")}${row("welcome","","Guia d'inici","Com funciona l'app, connectar el rellotge i instal·lar-la")}${!st.isCoach?row("coachLink","","Entrenador",st.myLink?"Connectat amb el teu entrenador":"Introduir codi d'invitació"):""}</div>`;
   h+=`<h2>Rellotge i avisos</h2><div class="plist">${row("sync","","Sincronitzar rellotge",syncSub)}${row("pushCfg","","Notificacions",st.push.on?`Recordatori ${pad(st.push.hour)}:00${prof().notifAct!==false?" · avís d'activitat":""}`:"Desactivades")}</div>`;
   h+=`<h2>Dades</h2><div class="plist">${row("plaTab","coef","Coeficients de càrrega","Pes de cada disciplina a la càrrega")}${row("export","","Exportar a Excel","Totes les dades en un fitxer")}${row("importJson","","Importar còpia (JSON)","Carregar dades des d'un fitxer")}</div>`;
   h+=`<h2>Compte</h2><div class="plist">${row("chPass","","Canviar contrasenya","")}${row("privacy","","Privacitat",prof().consent?"Política acceptada":"Llegir la política")}${row("logout","","Tancar sessió",esc(st.email||""))}</div>`;
@@ -1559,6 +1585,7 @@ function render(){
   let banner="";
   if (st.mode==="login"){ app.innerHTML=vLogin(); document.getElementById("tabs").innerHTML=""; return; }
   if (st.mode==="consent"){ app.innerHTML=vConsent(); document.getElementById("tabs").innerHTML=""; return; }
+  if (st.mode==="welcome"){ app.innerHTML=vWelcome(); document.getElementById("tabs").innerHTML=""; return; }
   if (st.mode==="onb"){ app.innerHTML=vOnboarding(); document.getElementById("tabs").innerHTML=""; return; }
   if (st.mode==="error"){ app.innerHTML=`<div class="empty" style="margin-top:40px">No s'ha pogut carregar l'app. Revisa la connexió i torna-ho a provar.</div>`; return; }
   else if (st.stale) banner=`<div class="banner">Encara no s'han pogut carregar totes les dades. El que veus pot no estar al dia.</div>`;
@@ -2411,6 +2438,9 @@ document.addEventListener("click", e=>{
     case "raceApprox": document.querySelector("#r-approx").classList.toggle("on"); break;
     case "actDetail": sheetDetail(el.dataset.id); break;
     case "pushCfg": sheetPush(); break;
+    case "wNav": st.wStep=(st.wStep||0)+Number(el.dataset.d); render(); window.scrollTo(0,0); break;
+    case "wDone": welcomeDone(); break;
+    case "welcome": st.mode="welcome"; st.wStep=0; render(); window.scrollTo(0,0); break;
     case "notifAct": { const v=prof().notifAct===false; write("profile",null,{notifAct:v}); el.querySelector(".sw")?.classList.toggle("on",v); toast(v?"Avís d'activitat activat":"Avís d'activitat desactivat"); break; }
     case "pushOn": pushOn(); break;
     case "pushOff": pushOff(); break;
