@@ -349,6 +349,7 @@ async function write(kind, id, data){
 }
 const newId = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
+const PUSH_FN="clever-api";   // funció de notificacions (a Supabase es va crear amb aquest nom)
 const SB_URL="https://usktsnbiliacshtecvsg.supabase.co", SB_KEY="sb_publishable_FwgWhuZJr0j-wxWsszczLQ_JM-ozY4R";
 const COLLS=["sessions","daily","weights","macros","plan","tests","dayplan","races"];
 let sb=null;
@@ -425,7 +426,7 @@ async function pushOn(){
     const perm=await Notification.requestPermission();
     if(perm!=="granted"){ err.textContent="Cal donar permís de notificacions al navegador."; return; }
     let sub=await swReg.pushManager.getSubscription();
-    if(!sub){ const {data,error}=await sb.functions.invoke("push",{body:{action:"key"}}); if(error||!data?.publicKey) throw new Error("key");
+    if(!sub){ const {data,error}=await sb.functions.invoke(PUSH_FN,{body:{action:"key"}}); if(error||!data?.publicKey) throw new Error("key");
       sub=await swReg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(data.publicKey)}); }
     const {error}=await sb.from("push_subs").upsert({endpoint:sub.endpoint,user_id:st.uid,sub:sub.toJSON(),hour});
     if(error) throw error;
@@ -437,7 +438,7 @@ async function pushOff(){
   st.push.on=false; closeSheet(); render(); toast("Recordatori desactivat");
 }
 async function pushTest(){
-  const {data,error}=await sb.functions.invoke("push",{body:{action:"test"}});
+  const {data,error}=await sb.functions.invoke(PUSH_FN,{body:{action:"test"}});
   toast(error?"No s'ha pogut enviar la prova.":data?.sent?"Prova enviada":"No s'ha trobat cap dispositiu.");
 }
 

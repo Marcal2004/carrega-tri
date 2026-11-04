@@ -27,7 +27,7 @@ create extension if not exists pg_cron;
 select cron.unschedule('carrega-recordatori') where exists (select 1 from cron.job where jobname = 'carrega-recordatori');
 select cron.schedule('carrega-recordatori', '0 * * * *', $$
   select net.http_post(
-    url := 'https://usktsnbiliacshtecvsg.supabase.co/functions/v1/push',
+    url := 'https://usktsnbiliacshtecvsg.supabase.co/functions/v1/clever-api',
     headers := '{"Content-Type":"application/json","x-cron-secret":"CANVIA_AIXO"}'::jsonb,
     body := '{"action":"cron"}'::jsonb
   );
