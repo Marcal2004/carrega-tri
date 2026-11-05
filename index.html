@@ -469,7 +469,7 @@ async function createInvite(){
   const code=rndCode(); const {error}=await sb.from("invites").insert({code,coach_id:st.uid});
   if(error){ toast("No s'ha pogut crear el codi."); return; }
   openSheet(sheetHead("Convidar atleta")+`<div class="preview" style="justify-content:center"><span class="big" style="font-size:40px;letter-spacing:6px">${code}</span></div>
-  <p class="small mut" style="margin:10px 0">Passa-li aquest codi a l'atleta. Ha d'entrar a <b>marcal2004.github.io/carrega-tri</b>, tocar <b>Crear un compte</b> i posar-hi el codi. Quedarà vinculat a tu automàticament. Caduca d'aquí a 14 dies i només serveix una vegada. (Si ja tenia compte: Jo › Configuració › Entrenador.)</p>
+  <p class="small mut" style="margin:10px 0">Passa-li aquest codi a l'atleta. Ha d'entrar a <b>mendurance.app</b>, tocar <b>Crear un compte</b> i posar-hi el codi. Quedarà vinculat a tu automàticament. Caduca d'aquí a 14 dies i només serveix una vegada. (Si ja tenia compte: Jo › Configuració › Entrenador.)</p>
   <button class="btn pri block" data-act="copyCode" data-code="${code}">Copiar missatge</button>`);
 }
 function sheetRedeem(){
@@ -2451,7 +2451,7 @@ document.addEventListener("click", e=>{
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
     case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
-    case "copyCode": { const msg=`Hola! Per entrar a M.Endurance: obre https://marcal2004.github.io/carrega-tri/ , toca «Crear un compte» i posa aquest codi d'invitació: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
+    case "copyCode": { const msg=`Hola! Per entrar a M.Endurance: obre https://mendurance.app , toca «Crear un compte» i posa aquest codi d'invitació: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
     case "coachLink": if(!st.myLink) sheetRedeem(); else toast("Ja estàs connectat amb el teu entrenador"); break;
     case "redeem": redeem(); break;
     case "athSettings": sheetAthlete(st.viewUid); break;
