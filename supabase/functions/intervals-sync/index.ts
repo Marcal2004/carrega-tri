@@ -28,11 +28,13 @@ Deno.serve(async (req) => {
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "forbidden" }, 403);
       const { data: links } = await admin().from("coach_links").select("athlete_id,coach_id,intervals_id").not("intervals_id", "is", null);
       const seen = new Set<string>(), out: Record<string, unknown> = {};
+      const coachesOf: Record<string, string[]> = {};   // mode club: un atleta pot tenir més d'un entrenador
+      for (const l of links || []) (coachesOf[l.athlete_id] ||= []).push(l.coach_id);
       for (const l of links || []) { if (seen.has(l.athlete_id)) continue; seen.add(l.athlete_id);
         try {
           const r: any = await storeFor(l.athlete_id, String(l.intervals_id), key0);
           const fresh = r.fresh || []; delete r.fresh; out[l.athlete_id] = r;
-          if (fresh.length) r.notified = await notifyActivities(l.athlete_id, l.coach_id, fresh);
+          if (fresh.length) r.notified = await notifyActivities(l.athlete_id, coachesOf[l.athlete_id] || [], fresh);
         } catch (e) { out[l.athlete_id] = String((e as Error).message); } }
       return json({ ok: true, out });
     }
@@ -81,7 +83,7 @@ Deno.serve(async (req) => {
       if (!iid && uid === user.id && isOwner) iid = Deno.env.get("INTERVALS_ATHLETE_ID") || "";
       if (!/^i\d+$/.test(iid)) return json({ error: "nolink" }, 403);
       const r: any = await storeFor(uid, iid, key); const fresh = r.fresh || []; delete r.fresh;
-      if (fresh.length) { try { r.notified = await notifyActivities(uid, null, fresh); } catch (_) { /* sense avís */ } }
+      if (fresh.length) { try { r.notified = await notifyActivities(uid, [], fresh); } catch (_) { /* sense avís */ } }
       return json(r);
     }
 
@@ -213,7 +215,7 @@ function actTxt(s: any) {
   const t = s.min >= 60 ? `${Math.floor(s.min / 60)}h${String(s.min % 60).padStart(2, "0")}` : `${s.min}′`;
   return [s.disc, d, t].filter(Boolean).join(" · ");
 }
-async function notifyActivities(uid: string, coachId: string | null, fresh: any[]) {
+async function notifyActivities(uid: string, coachIds: string[], fresh: any[]) {
   if (!(await vapidReady())) return 0;
   const recent = fresh.filter((s) => s.date >= addDays(madridToday(), -1));   // només d'avui o d'ahir
   if (!recent.length) return 0;
@@ -222,7 +224,7 @@ async function notifyActivities(uid: string, coachId: string | null, fresh: any[
   let n = 0;
   const body = recent.length === 1 ? actTxt(recent[0]) : `${recent.length} activitats: ${recent.map((s) => s.disc).join(", ")}`;
   if (prof.notifAct !== false) n += await pushTo(uid, { title: "Nova activitat 🏁", body: body + " · posa-hi l'RPE", url: "./", tag: "act-" + uid });
-  if (coachId && coachId !== uid) n += await pushTo(coachId, { title: `${name} ha entrenat`, body, url: "./", tag: "act-" + uid });
+  for (const c of new Set(coachIds)) if (c && c !== uid) n += await pushTo(c, { title: `${name} ha entrenat`, body, url: "./", tag: "act-" + uid });
   return n;
 }
 async function storeFor(uid: string, iid: string, key: string) {

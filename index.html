@@ -69,6 +69,9 @@ h2{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.06em;t
 .disclab{font-size:13px;display:flex;justify-content:space-between;margin-bottom:5px;gap:8px}
 /* day rows */
 .day{background:var(--card);border-radius:12px;padding:10px 12px}
+.day.tap{cursor:pointer;transition:background .15s}.day.tap:hover{background:var(--card2)}
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.qitem{display:flex;gap:10px;align-items:center;width:100%;padding:10px 12px;border-radius:12px;background:var(--card2);text-align:left;margin-top:6px}
 .dayh{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .dayh .d{font-family:var(--disp);font-weight:700;font-size:17px;letter-spacing:.04em;text-transform:uppercase}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -209,7 +212,7 @@ const st = {
   sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, races:{}, planDay:null, grTab:"cal", calMonth:null,
   view:"avui", weekRef:monday(todayStr()), plaTab:"home", chartRange:12, stale:false,
   garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false},
-  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"",
+  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"", club:null, clubTok:null, clubName:"",
   push:{supported:false, on:false, hour:8}
 };
 let refs = null;
@@ -365,6 +368,8 @@ async function loadAll(){
 }
 async function boot(){
   initPush();
+  const ck=location.search.match(/[?&]club=([A-Fa-f0-9]{12})/);
+  if(ck){ st.clubTok=ck[1].toUpperCase(); history.replaceState(null,"",location.pathname); }
   if(!window.supabase){ st.mode="error"; render(); return; }
   const recovery=/type=recovery/.test(location.hash+location.search)||/[?&]reset=1/.test(location.search);
   if(recovery){ st.mode="login"; st.loginMode="newpass"; }
@@ -372,14 +377,16 @@ async function boot(){
   sb.auth.onAuthStateChange((ev,ses)=>{ if(ev==="SIGNED_OUT"){ st.mode="login"; st.uid=null; render(); } else if(ev==="PASSWORD_RECOVERY"){ st.mode="login"; st.loginMode="newpass"; render(); } else if(ev==="SIGNED_IN"&&ses&&st.mode==="login"&&st.loginMode!=="newpass"){ startSession(ses); } });
   const {data:{session}}=await sb.auth.getSession();
   if(recovery){ history.replaceState(null,"",location.pathname); st.mode="login"; st.loginMode="newpass"; render(); return; }
-  if(!session){ st.mode="login"; render(); return; }
+  if(!session){ st.mode="login"; if(st.clubTok){ st.loginMode="up"; loadClubName().then(render); } render(); return; }
   startSession(session);
 }
+async function loadClubName(){ try{ const {data}=await sb.rpc("club_public",{p_token:st.clubTok}); st.clubName=data||""; if(!data) st.clubTok=null; }catch(e){ st.clubTok=null; } }
 async function startSession(session){
   st.uid=session.user.id; st.email=session.user.email; st.mode="loading"; render();
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
   await loadCoach();
+  if(st.clubTok) setTimeout(sheetJoinClub,300);
   if(st.isCoach){ st.cview="panel"; render(); loadPush().then(render); loadTpl(); loadNotes().then(render); loadAthData().then(()=>{ render(); refreshCoach(false); }); return; }
   if(!prof().consent){ st.mode="consent"; render(); return; }
   afterConsent();
@@ -456,7 +463,77 @@ async function loadCoach(){
     const names={};
     if(mine.length){ const {data:pr}=await sb.from("docs").select("user_id,name:data->>name").eq("coll","profile").in("user_id",mine.map(l=>l.athlete_id)); (pr||[]).forEach(r=>names[r.user_id]=r.name); }
     st.athletes=mine.map(l=>({...l,name:names[l.athlete_id]||userLabel(l.athlete_email||"")})).sort((a,b)=>(a.name||a.athlete_email||"").localeCompare(b.name||b.athlete_email||""));
+    if(st.isCoach) await loadClub();
   }catch(e){}
+}
+/* ---------- mode club ---------- */
+async function loadClub(){ try{ const {data,error}=await sb.rpc("club_me"); st.club=error?null:(data||null); }catch(e){ st.club=null; } }
+const isClubAdmin=()=>st.club?.role==="admin";
+function clubCoachOf(uid){ if(!isClubAdmin()) return null; const a=(st.club.assign||[]).find(x=>x.athlete===uid); return a?(st.club.coaches||[]).find(c=>c.uid===a.coach)||{uid:a.coach,email:""}:null; }
+function clubUrl(tok){ return location.origin+location.pathname+"?club="+tok; }
+function sheetClubName(){
+  sheetState={kind:"clubname"};
+  openSheet(sheetHead(st.club?"Nom del club":"Crear el club","Els atletes el veuran en entrar amb el link")+`<div class="field"><label for="cl-name">Nom</label><input class="in-t" id="cl-name" maxlength="60" value="${esc(st.club?.club?.name||"")}" placeholder="M.Endurance Team"></div><div class="err" id="cl-err"></div><button class="btn pri block" data-act="clubSave">${st.club?"Guardar":"Crear club"}</button>
+  ${st.club?"":`<p class="note" style="margin-top:10px">Seràs l'administrador: veuràs tots els atletes del club, podràs afegir entrenadors i assignar-los atletes, i tindràs un link obert per convidar gent.</p>`}`);
+}
+async function clubSave(){
+  const v=document.querySelector("#cl-name").value.trim(), err=document.querySelector("#cl-err");
+  if(!v){ err.textContent="Posa un nom."; return; }
+  const {error}=await sb.rpc("club_save",{p_name:v});
+  if(error){ err.textContent=/function|schema/i.test(error.message)?"Falta activar el mode club a Supabase (schema_club.sql).":"No s'ha pogut guardar."; return; }
+  await loadClub(); closeSheet(); render(); toast("Club guardat");
+}
+function sheetClubCoaches(){
+  const C=st.club?.coaches||[]; sheetState={kind:"clubcoaches",rm:null};
+  let h=sheetHead("Entrenadors del club","Cada entrenador només veu els atletes que li assignis");
+  h+=C.length?`<div class="stack" style="margin-top:10px">${C.map(c=>{ const n=(st.club.assign||[]).filter(a=>a.coach===c.uid).length; return `<div class="sess" style="cursor:default"><span class="t"><span class="t1">${esc(userLabel(c.email||"Entrenador"))}</span><span class="t2">${n} atleta${n===1?"":"s"} assignat${n===1?"":"s"}</span></span><button class="btn ghost" style="padding:6px 10px;font-size:12px;color:var(--red)" data-act="clubRmCoach" data-id="${c.uid}">Treure</button></div>`; }).join("")}</div>`:`<div class="empty" style="margin-top:10px">Encara no hi ha cap altre entrenador.</div>`;
+  h+=`<div class="field"><label for="cc-mail">Afegir entrenador</label><input class="in-t" id="cc-mail" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Usuari o correu del seu compte"></div><div class="err" id="cc-err"></div><button class="btn pri block" data-act="clubAddCoach">Afegir</button>
+  <p class="note" style="margin-top:8px">Primer s'ha de crear un compte a l'app (amb un codi d'invitació teu). En afegir-lo, el seu compte passa a ser d'entrenador.</p>`;
+  openSheet(h);
+}
+async function clubAddCoach(){
+  const raw=document.querySelector("#cc-mail").value, err=document.querySelector("#cc-err"), mail=toLoginEmail(raw);
+  if(!mail){ err.textContent="Escriu l'usuari o el correu."; return; }
+  const {error}=await sb.rpc("club_add_coach",{p_email:mail});
+  if(error){ err.textContent=/nouser/.test(error.message)?"No hi ha cap compte amb aquest usuari o correu.":/self/.test(error.message)?"Ets tu mateix.":"No s'ha pogut afegir."; return; }
+  await loadClub(); sheetClubCoaches(); render(); toast("Entrenador afegit");
+}
+async function clubRmCoach(el){
+  const id=el.dataset.id;
+  if(sheetState?.rm!==id){ sheetState.rm=id; el.textContent="Segur?"; el.style.background="var(--red)"; el.style.color="#fff"; return; }
+  const {error}=await sb.rpc("club_remove_coach",{p_uid:id});
+  if(error){ toast("No s'ha pogut treure."); return; }
+  await loadClub(); sheetClubCoaches(); render(); toast("Entrenador tret del club");
+}
+function sheetClubLink(){
+  const L=st.club?.link;
+  let h=sheetHead("Link obert del club",st.club?.club?.name||"");
+  if(L){ const url=clubUrl(L.token);
+    h+=`<div class="preview" style="justify-content:center;word-break:break-all;text-align:center"><b style="font-size:15px">${esc(url)}</b></div>
+    <div class="small mut" style="text-align:center;margin-top:6px">${L.uses||0} ${L.uses===1?"persona s'ha unit":"persones s'han unit"} amb aquest link</div>
+    <div class="row" style="gap:8px;margin-top:12px"><button class="btn pri" style="flex:1" data-act="clubLinkCopy">Copiar missatge</button>${navigator.share?`<button class="btn" style="flex:1" data-act="clubLinkShare">Compartir</button>`:""}</div>
+    <button class="btn block" style="margin-top:8px" data-act="clubLinkNew">↻ Crear-ne un de nou</button>
+    <button class="btn block" style="margin-top:8px;color:var(--red);border-color:var(--red)" data-act="clubLinkOff">Desactivar el link</button>
+    <p class="note" style="margin-top:8px">Qui l'obri pot crear-se un compte i queda dins el club, assignat a tu. Després el pots passar a un altre entrenador des de Gestionar. Si el link circula on no toca, crea'n un de nou: l'anterior deixa de funcionar.</p>`; }
+  else h+=`<div class="empty" style="margin-top:10px">No hi ha cap link actiu.</div><button class="btn pri block" style="margin-top:12px" data-act="clubLinkNew">Crear link</button>
+    <p class="note" style="margin-top:8px">Un sol link per penjar a la bio, a un grup de WhatsApp o on vulguis. Serveix per a moltes persones fins que el desactivis.</p>`;
+  openSheet(h);
+}
+function clubMsg(){ return `Uneix-te a ${st.club?.club?.name||"M.Endurance"} 🏊🚴🏃 Crea't el compte aquí: ${clubUrl(st.club.link.token)}`; }
+async function clubLinkNew(){ const {error}=await sb.rpc("club_link_new"); if(error){ toast("No s'ha pogut crear el link."); return; } await loadClub(); sheetClubLink(); render(); toast("Link creat"); }
+async function clubLinkOff(){ const {error}=await sb.rpc("club_link_off"); if(error){ toast("No s'ha pogut desactivar."); return; } await loadClub(); sheetClubLink(); render(); toast("Link desactivat"); }
+function sheetJoinClub(){
+  const tok=st.clubTok; if(!tok) return; st.clubTok=null;
+  sb.rpc("club_public",{p_token:tok}).then(({data})=>{
+    if(!data){ toast("Aquest link del club ja no és vàlid."); return; }
+    sheetState={kind:"joinclub",tok};
+    openSheet(sheetHead("Unir-te al club",data)+`<p style="margin:10px 0">Si t'hi uneixes, els entrenadors de <b>${esc(data)}</b> podran veure les teves dades i preparar-te la planificació.</p><div class="err" id="jc-err"></div><button class="btn pri block" data-act="clubJoin">Unir-me</button><button class="btn block" style="margin-top:8px" data-act="close">Ara no</button>`);
+  });
+}
+async function clubJoin(){
+  const {error}=await sb.rpc("redeem_club",{p_token:sheetState.tok});
+  if(error){ document.querySelector("#jc-err").textContent=/self/.test(error.message)?"Aquest club és teu.":"No t'hi has pogut unir."; return; }
+  closeSheet(); toast("T'has unit al club"); await loadCoach(); render();
 }
 async function viewAthlete(uid){
   const a=st.athletes.find(x=>x.athlete_id===uid); st.viewUid=uid||null; st.viewName=a?(a.name||a.athlete_email||"Atleta"):"";
@@ -506,7 +583,8 @@ function vLogin(){
   const t={in:["Entra","Entrar"],up:["Crea el compte","Crear compte"],reset:["Recupera la contrasenya","Enviar enllaç"],newpass:["Nova contrasenya","Guardar"]}[m];
   return `<div style="padding:30px 8px 18px;display:flex;flex-direction:column;align-items:center;gap:22px"><div style="width:100%;max-width:340px">${LOGO_BANNER}</div><h1 style="margin:0;text-align:center">${t[0]}</h1></div>
   <div class="card"><form id="lf" onsubmit="return false">
-  ${m==="up"?`<div class="field" style="margin-top:0"><label for="l-code">Codi d'invitació</label><input class="in-t" id="l-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="El que t'ha donat el teu entrenador" style="text-transform:uppercase;letter-spacing:3px"></div>`:""}
+  ${m==="up"&&st.clubTok?`<div class="note" style="margin-top:0;text-align:center">T'uneixes a <b>${esc(st.clubName||"el club")}</b>. Crea't el compte i ja hi seràs.</div>`:""}
+  ${m==="up"&&!st.clubTok?`<div class="field" style="margin-top:0"><label for="l-code">Codi d'invitació</label><input class="in-t" id="l-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="El que t'ha donat el teu entrenador" style="text-transform:uppercase;letter-spacing:3px"></div>`:""}
   ${m!=="newpass"?`<div class="field" style="margin-top:${m==="up"?"14px":"0"}"><label for="l-email">${m==="reset"?"Correu":"Usuari o correu"}</label><input class="in-t" id="l-email" type="${m==="reset"?"email":"text"}" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="${m==="reset"?"el-teu@correu.com":"el-teu-usuari"}"></div>`:""}
   ${m!=="reset"?`<div class="field"><label for="l-pass">Contrasenya</label><input class="in-t" id="l-pass" type="password" autocomplete="${m==="in"?"current-password":"new-password"}" minlength="6" required></div>`:""}
   ${m==="up"?`<label style="display:flex;gap:10px;align-items:flex-start;margin-top:14px;cursor:pointer"><input type="checkbox" id="l-consent" style="width:22px;height:22px;flex:none;margin-top:2px"><span class="small" style="line-height:1.45">Accepto la <a href="#" data-act="privacy">política de privacitat</a> i consento el tractament de les meves dades, incloses les de salut, per al seguiment del meu entrenament.</span></label>`:""}
@@ -523,14 +601,14 @@ async function doLogin(){
   try{
     if(m==="in"){ const {data,error}=await sb.auth.signInWithPassword({email,password:pass}); if(error) throw error; startSession(data.session); }
     else if(m==="up"){
-      const code=(g("l-code")||"").toUpperCase();
-      if(!/^[A-Z0-9]{4,12}$/.test(code)){ err.style.color=""; err.textContent="Posa el codi d'invitació que t'ha donat el teu entrenador."; return; }
+      const code=(g("l-code")||"").toUpperCase(), club=st.clubTok;
+      if(!club&&!/^[A-Z0-9]{4,12}$/.test(code)){ err.style.color=""; err.textContent="Posa el codi d'invitació que t'ha donat el teu entrenador."; return; }
       if(pass.length<6){ err.style.color=""; err.textContent="La contrasenya ha de tenir almenys 6 caràcters."; return; }
       if(!document.getElementById("l-consent")?.checked){ err.style.color=""; err.textContent="Has d'acceptar la política de privacitat per crear el compte."; return; }
-      const {data,error}=await sb.functions.invoke("bright-service",{body:{code,email,password:pass,consent:true,consentV:PRIV_V}});
+      const {data,error}=await sb.functions.invoke("bright-service",{body:club?{club,email,password:pass,consent:true,consentV:PRIV_V}:{code,email,password:pass,consent:true,consentV:PRIV_V}});
       if(error){ let c2=""; try{ c2=(await error.context.json()).error; }catch(_){}
-        err.style.color=""; err.textContent= c2==="code"?"El codi no és vàlid, ja s'ha fet servir o ha caducat. Demana'n un de nou al teu entrenador.":c2==="exists"?"Aquest usuari o correu ja té un compte. Entra amb la contrasenya.":"No s'ha pogut crear el compte. Torna-ho a provar."; return; }
-      const r=await sb.auth.signInWithPassword({email,password:pass}); if(r.error) throw r.error; startSession(r.data.session);
+        err.style.color=""; err.textContent= c2==="code"?(club?"Aquest link del club ja no és vàlid. Demana'n un de nou.":"El codi no és vàlid, ja s'ha fet servir o ha caducat. Demana'n un de nou al teu entrenador."):c2==="exists"?"Aquest usuari o correu ja té un compte. Entra amb la contrasenya.":"No s'ha pogut crear el compte. Torna-ho a provar."; return; }
+      st.clubTok=null; const r=await sb.auth.signInWithPassword({email,password:pass}); if(r.error) throw r.error; startSession(r.data.session);
     }
     else if(m==="reset"){ const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname+"?reset=1"}); if(error) throw error; err.style.color="var(--green)"; err.textContent="T'hem enviat un enllaç per canviar la contrasenya."; }
     else if(m==="newpass"){ const {error}=await sb.auth.updateUser({password:pass}); if(error) throw error; st.loginMode="in"; const {data:{session}}=await sb.auth.getSession(); if(session) startSession(session); }
@@ -832,12 +910,12 @@ function vCoachPlan(){
     <div class="small mut" style="margin-top:6px">${DISC.map(d=>{ const hh=num(pl?.p?.h?.[DKEY[d]]); return `<span style="margin-right:10px"><span class="dot" style="background:${DHEX[d]}"></span> ${r1((wr.minD[d]||0)/60)}${hh!=null?"/"+hh:""} h</span>`; }).join("")}</div></div>`;
   h+=`<div class="stack" style="margin-top:10px">`;
   for(let i=0;i<7;i++){ const d=addD(ws,i), its=dayItems(d), rows=dayMatches(d), note=st.dayplan[d]?.note||"";
-    h+=`<div class="day ${d===today?"today-ring":""}"><div class="dayh"><span class="d">${DAYS[i]} ${Number(d.slice(8))}</span><button class="btn ghost" style="padding:6px 12px;font-size:12px" data-act="editDay" data-date="${d}">${its.length||st.dayplan[d]?"Editar":"+ Afegir"}</button></div>`;
+    h+=`<div class="day tap ${d===today?"today-ring":""}" data-act="qDay" data-date="${d}"><div class="dayh"><span class="d">${DAYS[i]} ${Number(d.slice(8))}</span><span class="btn ghost" style="padding:6px 12px;font-size:12px">${its.length?"+ Afegir · Editar":"+ Afegir"}</span></div>`;
     if(its.length){ h+=`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">`;
       for(const {it,idx,m} of rows){ const S=itemStatus(d,it,m), [lab,col]=stInfo(S.k);
         h+=`<button data-act="planItem" data-date="${d}" data-i="${idx}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:var(--card2);text-align:left;width:100%;border-left:4px solid ${col}"><span style="flex:1;min-width:0"><b style="font-size:14px"><span class="dot" style="background:${DHEX[it.disc]};margin-right:6px"></span>${esc(it.title||it.disc)}</b>${it.min?` <span class="small mut">· ${it.min}′</span>`:""}${it.iev?` <span class="small" title="Enviat al rellotge">⌚</span>`:""}${workPreview(it)?`<span class="small mut" style="display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(workPreview(it))}</span>`:""}</span></button>`; }
       h+=`</div>`; }
-    else h+=`<div class="small mut" style="margin-top:6px">${st.dayplan[d]?"Descans":"Res planificat"}</div>`;
+    else h+=`<div class="small mut" style="margin-top:6px">${st.dayplan[d]?"Descans":"Res planificat · toca per afegir"}</div>`;
     if(note) h+=`<div class="note" style="margin:6px 0 0">${esc(note)}</div>`;
     h+=`</div>`; }
   h+=`</div>${watchIid()?`<button class="btn pri block" style="margin-top:12px" data-act="pushWeek" data-ws="${ws}">⌚ Enviar la setmana al rellotge</button>`:`<div class="note" style="margin-top:12px">Per enviar entrenos al rellotge, posa l'ID d'intervals.icu de l'atleta a Jo › Atletes › Gestionar.</div>`}<button class="btn block" style="margin-top:8px" data-act="cCopy">📋 Copiar aquesta setmana…</button><button class="btn block" style="margin-top:8px" data-act="cTpl">⭐ Plantilles d'entrenos</button>`;
@@ -877,6 +955,10 @@ function vCoachJo(){
   const row=(act,t,title,sub,extra="")=>`<button class="prow" data-act="${act}"${t?` data-t="${t}"`:""}${extra}><span style="min-width:0"><span style="display:block;font-weight:600">${title}</span>${sub?`<span class="small mut" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</span>`:""}</span><span class="mut" style="font-size:22px;line-height:1">›</span></button>`;
   let h=`<div class="card" style="display:flex;align-items:center;gap:14px;margin-top:4px"><div style="width:64px;height:64px;border-radius:50%;overflow:hidden;background:var(--card2);border:2px solid var(--brand);flex:none"><img src="${IMG_RUN}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:50% 20%"></div><div><div class="eyebrow">Entrenador</div><h1 style="margin-top:2px">${esc(userLabel(st.email))}</h1><div class="small mut">${st.athletes.length} atletes</div></div></div>`;
   h+=vCoachAthletes();
+  if(isClubAdmin()){ const C=st.club.coaches||[], L=st.club.link;
+    h+=`<h2>Club</h2><div class="plist">${row("clubName","",esc(st.club.club?.name||"Club"),"Ets l'administrador · tocar per canviar el nom")}${row("clubCoaches","","Entrenadors",C.length?`${C.length} · ${C.map(c=>esc(userLabel(c.email||""))).join(", ")}`:"Afegeix altres entrenadors al club")}${row("clubLink","","Link obert del club",L?`Actiu · ${L.uses||0} ${L.uses===1?"alta":"altes"}`:"Crea un link per convidar atletes")}</div>`; }
+  else if(st.club?.role==="coach") h+=`<h2>Club</h2><div class="card small" style="padding:12px">Formes part de <b>${esc(st.club.club?.name||"un club")}</b>. Veus els atletes que l'administrador t'ha assignat.</div>`;
+  else h+=`<h2>Club</h2><div class="plist">${row("clubName","","Crear un club","Diversos entrenadors, atletes assignats i un link obert per convidar")}</div>`;
   h+=`<h2>Planificació</h2><div class="plist">${row("cTpl","","Plantilles d'entrenos",`${Object.keys(st.tpl||{}).length} guardades`)}</div>`;
   h+=`<h2>Compte</h2><div class="plist">${row("pushCfg","","Avisos dels atletes",st.push.on?"Activats en aquest dispositiu":"Quan pugen una activitat nova")}${row("chPass","","Canviar contrasenya","")}${row("privacy","","Política de privacitat","El que accepten els atletes en registrar-se")}${row("logout","","Tancar sessió",esc(userLabel(st.email||"")))}</div>`;
   return h;
@@ -1025,6 +1107,7 @@ function sheetManage(uid){
   h+=`<div class="grid3" style="margin-top:10px"><div class="tile" style="padding:10px"><div class="lab">Des de</div><div class="val" style="font-size:16px;line-height:1.6">${esc(since)}</div><div class="sub">vinculat</div></div><div class="tile" style="padding:10px"><div class="lab">Rellotge</div><div class="val" style="font-size:16px;line-height:1.6;color:${a.intervals_id?"var(--green)":"var(--mut)"}">${esc(n.device||"–")} ${a.intervals_id?"✓":""}</div><div class="sub">${esc(a.intervals_id||"no connectat")}</div></div><div class="tile" style="padding:10px"><div class="lab">Grup</div><div class="val" style="font-size:16px;line-height:1.6">${esc(n.group||"–")}</div><div class="sub">etiqueta</div></div></div>`;
   h+=`<div class="field"><label for="m-dev">Marca del rellotge</label><select class="in-t" id="m-dev"><option value="">–</option>${DEVICES.map(d=>`<option ${n.device===d?"selected":""}>${d}</option>`).join("")}</select><div class="note">${n.device?esc(devPlanNote({athlete_id:uid})):"Garmin i Coros reben els entrenos al rellotge; Polar no (l'atleta els segueix des de l'app). Totes les marques envien les activitats si estan connectades a intervals.icu."}</div></div>
   <div class="f2"><div class="field"><label for="m-group">Grup / etiqueta</label><input class="in-t" id="m-group" maxlength="24" value="${esc(n.group||"")}" placeholder="Triatló, Gimnàs, Club…" list="m-groups"><datalist id="m-groups">${[...new Set(Object.values(st.anote||{}).map(x=>x.group).filter(Boolean))].map(g=>`<option value="${esc(g)}">`).join("")}</datalist></div><div class="field"><label for="m-int">ID d'intervals.icu</label><input class="in-t" id="m-int" value="${esc(a.intervals_id||"")}" placeholder="i123456" autocomplete="off"></div></div>
+  ${isClubAdmin()&&(st.club.coaches||[]).length?`<div class="field"><label for="m-coach">Entrenador del club</label><select class="in-t" id="m-coach"><option value="">Només jo</option>${st.club.coaches.map(c=>`<option value="${c.uid}" ${clubCoachOf(uid)?.uid===c.uid?"selected":""}>${esc(userLabel(c.email||"Entrenador"))}</option>`).join("")}</select><div class="note">L'entrenador assignat veu i planifica aquest atleta. Tu el continues veient.</div></div>`:""}
   <div class="field"><label for="m-note">Notes de l'entrenador</label><textarea class="in-t" id="m-note" rows="4" maxlength="600" placeholder="Lesions, objectius, disponibilitat, material…">${esc(n.note||"")}</textarea><div class="note">Només les veus tu.</div></div>
   <div class="err" id="m-err"></div><button class="btn pri block" data-act="cManageSave">Guardar</button>
   <div class="row" style="gap:8px;margin-top:8px"><button class="btn" style="flex:1" data-act="cOpen" data-id="${uid}">Veure fitxa</button><button class="btn" style="flex:1" data-act="cPlanAth" data-id="${uid}">Planificar</button></div>
@@ -1039,6 +1122,8 @@ async function manageSave(){
   const r1_=await sb.from("docs").upsert({user_id:st.uid,coll:"anote",id:uid,data:note,updated_at:new Date().toISOString()});
   const r2_=await sb.from("coach_links").update({intervals_id:iv||null}).eq("coach_id",st.uid).eq("athlete_id",uid);
   if(r1_.error||r2_.error){ err.textContent="No s'ha pogut guardar."; return; }
+  const sel=document.querySelector("#m-coach");
+  if(sel && sel.value!==(clubCoachOf(uid)?.uid||"")){ const {error}=await sb.rpc("club_assign",{p_athlete:uid,p_coach:sel.value||null}); if(error){ err.textContent="No s'ha pogut assignar l'entrenador."; return; } }
   st.anote={...(st.anote||{}),[uid]:note}; closeSheet(); await loadCoach(); render(); toast("Guardat");
 }
 async function manageRemove(){
@@ -1056,7 +1141,7 @@ function vCoachAthletes(){
   if(!st.athletes.length) h+=`<div class="empty">Encara no en tens cap.</div>`;
   for(const g of groups){ const L=st.athletes.filter(a=>((st.anote||{})[a.athlete_id]?.group||"Sense grup")===g);
     if(groups.length>1) h+=`<div class="eyebrow" style="margin:12px 2px 6px">${esc(g)} · ${L.length}</div>`;
-    h+=`<div class="stack">${L.map(a=>`<button class="sess" data-act="cManage" data-id="${a.athlete_id}">${athAvatar(a.athlete_id,40)}<span class="t"><span class="t1">${esc(athName(a))}</span><span class="t2">@${esc(userLabel(a.athlete_email||""))} · ${devTxt(a)}${(st.anote||{})[a.athlete_id]?.note?" · 📝":""}</span></span><span class="mut">Gestionar ›</span></button>`).join("")}</div>`; }
+    h+=`<div class="stack">${L.map(a=>`<button class="sess" data-act="cManage" data-id="${a.athlete_id}">${athAvatar(a.athlete_id,40)}<span class="t"><span class="t1">${esc(athName(a))}</span><span class="t2">@${esc(userLabel(a.athlete_email||""))} · ${devTxt(a)}${(st.anote||{})[a.athlete_id]?.note?" · 📝":""}${clubCoachOf(a.athlete_id)?" · 👤 "+esc(userLabel(clubCoachOf(a.athlete_id).email||"entrenador")):""}</span></span><span class="mut">Gestionar ›</span></button>`).join("")}</div>`; }
   h+=`<button class="btn pri block" style="margin-top:10px" data-act="invite">+ Convidar atleta</button>`;
   return h;
 }
@@ -2203,6 +2288,34 @@ function vDayPlan(){
 }
 function fmtHM(m){ m=Math.round(m||0); const h=Math.floor(m/60), r=m%60; return h?(r?`${h} h ${r} min`:`${h} h`):`${r} min`; }
 function fmtMinH(m){ m=Math.round(m); return m>=60?`${Math.floor(m/60)}h${m%60?String(m%60).padStart(2,"0"):""}`:`${m}′`; }
+/* ---------- planificar ràpid: tocar un dia ---------- */
+function sheetQuickDay(date){
+  fillTestLib(); const its=dayItems(date), ex=st.dayplan[date], full=its.length>=4; sheetState={kind:"qday",date};
+  const it1=(w,src,id)=>`<button class="qitem" data-act="qAdd" data-src="${src}" data-id="${esc(id)}">${discIcon(w.disc,28)}<span style="flex:1;min-width:0"><b style="display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(w.title||w.disc)}</b><span class="small mut">${esc(w.disc)}${w.min?` · ${w.min}′`:""}</span></span><span style="color:var(--brand);font-weight:700;font-size:20px">+</span></button>`;
+  let h=sheetHead(fmtLong(date),st.viewName?"Pla de "+st.viewName:"");
+  if(its.length) h+=`<div class="eyebrow" style="margin-top:12px">Ja planificat</div>`+its.map((t,i)=>`<button class="qitem" data-act="planItem" data-date="${date}" data-i="${i}">${discIcon(t.disc,28)}<span style="flex:1;min-width:0"><b style="display:block;font-size:14px">${esc(t.title||t.disc)}</b><span class="small mut">${esc(t.disc)}${t.min?` · ${t.min}′`:""}</span></span><span class="mut">›</span></button>`).join("");
+  if(full) h+=`<div class="note" style="margin-top:12px">Aquest dia ja té 4 entrenos. Edita'l per canviar-ne algun.</div>`;
+  else {
+    h+=`<div class="qgrid"><button class="btn pri" data-act="qNew">＋ Entreno nou</button>${its.length?`<button class="btn" data-act="editDay" data-date="${date}">✏️ Editar el dia</button>`:`<button class="btn" data-act="qRest">😴 Descans</button>`}</div>`;
+    const T=tplList();
+    h+=`<div class="eyebrow" style="margin-top:16px">⭐ Les meves plantilles</div>`+(T.length?T.map(t=>it1(t,"tpl",t.id)).join(""):`<div class="small mut" style="margin-top:6px">Encara no en tens. Desa'n des de la biblioteca (☆) o des de l'editor del dia.</div>`);
+    h+=`<details style="margin-top:14px" ${T.length?"":"open"}><summary class="eyebrow" style="cursor:pointer">📚 Biblioteca d'entrenos</summary>${WLIB.map((c,ci)=>`<div class="small mut" style="margin:10px 2px 0;font-weight:600">${esc(c.cat)}</div>`+c.items.map((w,wi)=>it1(w,"lib",ci+"-"+wi)).join("")).join("")}</details>`;
+  }
+  if(full||(!its.length&&ex)) h+=`<button class="btn block" style="margin-top:12px" data-act="editDay" data-date="${date}">✏️ Editar el dia</button>`;
+  h+=`<p class="note" style="margin-top:12px">Toca un entreno i s'afegeix directament a aquest dia${watchIid()&&date>=todayStr()?" i s'envia al rellotge":""}. Després el pots retocar.</p>`;
+  openSheet(h);
+}
+function qAdd(src,id){
+  const w=libGet(src,id), date=sheetState?.date; if(!w||!date) return;
+  const its=dayItems(date); if(its.length>=4){ toast("Aquest dia ja té 4 entrenos."); return; }
+  const it={disc:w.disc,title:w.title||w.disc,min:w.min??null};
+  if(hasBlocks(w)){ for(const [k] of BLK) if(w[k]) it[k]=w[k]; } else if(w.detail) it.main=w.detail;
+  it.detail=composeDetail(it);
+  const wt=w.watch||(/^\s*-\s/m.test(w.detail||"")?w.detail:""); if(wt) it.watch=wt;
+  const d=st.dayplan[date]||{note:""};
+  closeSheet(); write("dayplan",date,{...d,items:[...its,it]});
+  toast(`Afegit: ${it.title} · ${fmtShort(date)}`);
+}
 function sheetDay(date){
   const ex=st.dayplan[date]||{}; const items=[...dayItems(date)]; while(items.length<4) items.push({disc:"",title:"",detail:"",min:null});
   sheetState={kind:"day",date};
@@ -2366,6 +2479,17 @@ document.addEventListener("click", e=>{
   switch(a){
     case "go": if(el.dataset.v==="avui"&&st.view==="avui") st.planDay=null; st.view=el.dataset.v; if(st.view==="setmana") st.weekRef=monday(todayStr()); if(st.view==="pla") st.plaTab="home"; render(); window.scrollTo(0,0); break;
     case "close": closeSheet(); break;
+    case "clubName": sheetClubName(); break;
+    case "clubSave": clubSave(); break;
+    case "clubCoaches": sheetClubCoaches(); break;
+    case "clubAddCoach": clubAddCoach(); break;
+    case "clubRmCoach": clubRmCoach(el); break;
+    case "clubLink": sheetClubLink(); break;
+    case "clubLinkNew": clubLinkNew(); break;
+    case "clubLinkOff": clubLinkOff(); break;
+    case "clubLinkCopy": navigator.clipboard?.writeText(clubMsg()).then(()=>toast("Missatge copiat"),()=>toast(clubUrl(st.club.link.token))); break;
+    case "clubLinkShare": navigator.share?.({title:st.club?.club?.name||"M.Endurance",text:clubMsg()}).catch(()=>{}); break;
+    case "clubJoin": clubJoin(); break;
     case "newSess": sheetSession(null, el.dataset.date || (st.view==="setmana" && todayStr()>=st.weekRef && todayStr()<=addD(st.weekRef,6) ? todayStr() : st.view==="setmana" ? st.weekRef : todayStr())); break;
     case "editSess": openSess(el.dataset.id); break;
     case "editSessForce": sheetSession(el.dataset.id); break;
@@ -2463,6 +2587,10 @@ document.addEventListener("click", e=>{
     case "goToday": st.planDay=null; render(); window.scrollTo(0,0); break;
     case "dayWk": st.planDay=addD(st.planDay&&isDate(st.planDay)?st.planDay:todayStr(), Number(el.dataset.d)); render(); break;
     case "editDay": sheetDay(el.dataset.date); break;
+    case "qDay": sheetQuickDay(el.dataset.date); break;
+    case "qNew": sheetDay(sheetState.date); break;
+    case "qRest": { const d=sheetState.date; closeSheet(); write("dayplan",d,{items:[],note:"Descans"}); toast("Marcat com a descans"); break; }
+    case "qAdd": qAdd(el.dataset.src,el.dataset.id); break;
     case "saveDay": saveDay(); break;
     case "editTest": sheetTest(el.dataset.id||null); break;
     case "saveTest": saveTest(); break;
