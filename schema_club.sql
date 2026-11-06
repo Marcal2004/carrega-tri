@@ -33,8 +33,7 @@ drop policy if exists "clubs_read" on public.clubs;
 create policy "clubs_read" on public.clubs for select using (
   owner = auth.uid() or exists (select 1 from public.club_coaches c where c.club_id = clubs.id and c.user_id = auth.uid()));
 drop policy if exists "club_coaches_read" on public.club_coaches;
-create policy "club_coaches_read" on public.club_coaches for select using (
-  user_id = auth.uid() or exists (select 1 from public.clubs k where k.id = club_coaches.club_id and k.owner = auth.uid()));
+create policy "club_coaches_read" on public.club_coaches for select using (user_id = auth.uid());
 drop policy if exists "club_links_read" on public.club_links;
 create policy "club_links_read" on public.club_links for select using (
   exists (select 1 from public.clubs k where k.id = club_links.club_id and k.owner = auth.uid()));

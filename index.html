@@ -212,7 +212,7 @@ const st = {
   sessions:{}, daily:{}, weights:{}, macros:{}, plan:{}, tests:{}, dayplan:{}, races:{}, planDay:null, grTab:"cal", calMonth:null,
   view:"avui", weekRef:monday(todayStr()), plaTab:"home", chartRange:12, stale:false,
   garmin:{state:"off", msg:"", last:null, added:0, skipped:0, wellness:false},
-  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"", club:null, clubTok:null, clubName:"",
+  isCoach:false, athletes:[], myLink:null, viewUid:null, viewName:"", club:null, clubTok:null, clubName:"", isAdmin:false, adm:null, aview:"resum", ex:null,
   push:{supported:false, on:false, hour:8}
 };
 let refs = null;
@@ -386,6 +386,8 @@ async function startSession(session){
   refs={ profile:{ set:d=>sbUpsert("profile","profile",d) }, col:name=>({ doc:id=>({ set:d=>sbUpsert(name,id,d), delete:()=>sbDelete(name,id) }) }) };
   try{ await loadAll(); st.mode="db"; }catch(e){ st.mode="db"; st.stale=true; st.profileLoaded=true; toast("No s'han pogut carregar les dades."); }
   await loadCoach();
+  try{ const {data:ia}=await sb.rpc("is_platform_admin"); st.isAdmin=!!ia; }catch(e){ st.isAdmin=false; }
+  if(st.isAdmin){ st.isCoach=false; st.mode="db"; st.aview="resum"; render(); loadAdmin().then(render); return; }
   if(st.clubTok) setTimeout(sheetJoinClub,300);
   if(st.isCoach){ st.cview="panel"; render(); loadPush().then(render); loadTpl(); loadNotes().then(render); loadAthData().then(()=>{ render(); refreshCoach(false); }); return; }
   if(!prof().consent){ st.mode="consent"; render(); return; }
@@ -1054,8 +1056,10 @@ const WLIB=[
 ];
 function fillTestLib(){ const c=WLIB.find(x=>x.cat==="Tests"); if(!c||c.items.length) return; for(const [disc,arr] of Object.entries(TPROTO)) for(const t of arr) for(const w of (TEST_W[t.name]||[])) c.items.push({disc,title:w.title,min:w.min,detail:w.watch}); }
 function vCoachLib(){ fillTestLib();
-  const f=st.libF||"Totes", tpl=tplList();
-  let h=coachHead("Entrenador","Entrenos",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cTplEdit">+ Nova</button>`);
+  const f=st.libF||"Totes", tpl=tplList(), ex=st.libMode==="ex";
+  const seg=`<div class="row" style="gap:6px;margin-top:12px;background:var(--card);padding:4px;border-radius:12px">${[["ses","Sessions"],["ex","Exercicis"]].map(([k,l])=>`<button class="btn ${(ex?"ex":"ses")===k?"pri":"ghost"}" style="flex:1;padding:8px;font-size:13px;border:0" data-act="libMode" data-m="${k}">${l}</button>`).join("")}</div>`;
+  if(ex) return coachHead("Entrenador","Entrenos",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="exEdit">+ Nou</button>`)+seg+vExercises(true);
+  let h=coachHead("Entrenador","Entrenos",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="cTplEdit">+ Nova</button>`)+seg;
   h+=`<div class="chips" style="margin-top:12px">${["Totes","Les meves",...WLIB.map(c=>c.cat)].map(c=>`<button class="chip" data-act="cLibF" data-f="${c}" style="${f===c?"background:var(--brand);color:var(--on-brand);border-color:var(--brand)":""}">${c}</button>`).join("")}</div>`;
   const card=(w,src,id)=>`<div class="card" style="padding:12px;margin-top:8px"><div style="display:flex;gap:10px;align-items:flex-start">${discIcon(w.disc,32)}<div style="flex:1;min-width:0"><div class="row between" style="gap:8px"><b>${esc(w.title)}</b><span class="small mut" style="flex:none">${w.min?w.min+"′":""}</span></div><div class="small mut" style="white-space:pre-line;margin-top:4px">${esc(w.detail||"")}</div></div></div>
     <div class="row" style="gap:8px;margin-top:10px"><button class="btn pri" style="flex:1;padding:8px;font-size:13px" data-act="cLibPlan" data-src="${src}" data-id="${esc(id)}">Planificar</button>${src==="lib"?`<button class="btn ghost" style="flex:1;padding:8px;font-size:13px" data-act="cLibSave" data-id="${esc(id)}">☆ A les meves</button>`:`<button class="btn ghost" style="flex:1;padding:8px;font-size:13px" data-act="cTplEdit" data-id="${esc(id)}">Editar</button>`}</div></div>`;
@@ -1146,6 +1150,182 @@ function vCoachAthletes(){
   return h;
 }
 
+/* ---------- admin total (gestió) ---------- */
+async function loadAdmin(){ try{ const {data,error}=await sb.rpc("admin_overview"); if(!error) st.adm=data; }catch(e){} }
+const ADM_ICON={resum:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  coaches:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+  clubs:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c1-3.5 3.8-5 7-5s6 1.5 7 5M15 15c3 0 5 1.5 6 4"/></svg>',
+  exer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>'};
+function adminTabs(){
+  const t=st.aview||"resum", tabs=[["resum","Resum"],["coaches","Entrenadors"],["clubs","Clubs"],["users","Atletes"],["exer","Exercicis"]];
+  document.getElementById("tabs").innerHTML=tabs.map(([k,l])=>`<button class="tab ${t===k?"on":""}" data-act="aGo" data-v="${k}" ${t===k?'aria-current="page"':""}>${ADM_ICON[k]}<span style="font-size:10px;letter-spacing:.02em">${l}</span></button>`).join("");
+}
+const admUser=uid=>(st.adm?.users||[]).find(u=>u.uid===uid);
+const admLabel=uid=>{ const u=admUser(uid); return u?(u.name||userLabel(u.email)):"–"; };
+function renderAdmin(app,banner){
+  const v=st.aview||"resum";
+  app.innerHTML=banner+(v==="coaches"?vAdmCoaches():v==="clubs"?vAdmClubs():v==="users"?vAdmUsers():v==="exer"?coachHead("Gestió","Exercicis",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="exEdit">+ Nou</button>`)+vExercises(true):vAdmResum());
+  adminTabs(); exBind(app);
+  const q=app.querySelector("#adm-q"); if(q){ q.value=st.admQ||""; q.addEventListener("input",()=>{ st.admQ=q.value; const t=q.value.trim().toLowerCase(); app.querySelectorAll("[data-q]").forEach(r=>r.style.display=!t||r.dataset.q.includes(t)?"":"none"); }); q.dispatchEvent(new Event("input")); }
+}
+function vAdmResum(){
+  const A=st.adm; let h=coachHead("Gestió","Resum",`<button class="btn ghost" style="padding:8px 12px;font-size:13px" data-act="aRefresh">↻</button>`);
+  if(!A) return h+`<div class="empty" style="margin-top:14px">Carregant… Si no surt res, revisa que hagis executat schema_admin.sql.</div>`;
+  const ath=A.users.filter(u=>!u.coach&&!u.admin), free=ath.filter(u=>!u.coaches.length);
+  const tile=(lab,val,sub,act)=>`<button class="tile" style="padding:12px;text-align:left" data-act="aGo" data-v="${act}"><div class="lab">${lab}</div><div class="val">${val}</div><div class="sub">${sub}</div></button>`;
+  h+=`<div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">${tile("Entrenadors",A.coaches.length,"amb rol d'entrenador","coaches")}${tile("Clubs",A.clubs.length,"creats","clubs")}${tile("Atletes",ath.length,`${ath.filter(u=>u.intervals).length} amb rellotge`,"users")}${tile("Sense entrenador",free.length,"atletes sense vincle","users")}</div>`;
+  if(free.length) h+=`<h2>Atletes sense entrenador</h2><div class="stack">${free.slice(0,8).map(admUserRow).join("")}</div>`;
+  h+=`<h2>Compte</h2><div class="plist"><button class="prow" data-act="chPass"><span style="font-weight:600">Canviar contrasenya</span><span class="mut" style="font-size:22px">›</span></button><button class="prow" data-act="logout"><span style="min-width:0"><span style="display:block;font-weight:600">Tancar sessió</span><span class="small mut">${esc(userLabel(st.email||""))} · admin</span></span><span class="mut" style="font-size:22px">›</span></button></div>`;
+  return h;
+}
+function admUserRow(u){ const cs=(u.coaches||[]).map(admLabel); return `<button class="sess" data-act="aUser" data-id="${u.uid}" data-q="${esc(((u.name||"")+" "+u.email).toLowerCase())}">${athAvatar(u.uid,36)}<span class="t"><span class="t1">${esc(u.name||userLabel(u.email))}${u.coach?' <span class="small" style="color:var(--brand)">· entrenador</span>':""}</span><span class="t2">@${esc(userLabel(u.email))} · ${cs.length?"👤 "+esc(cs.join(", ")):"sense entrenador"}${u.intervals?" · ⌚":""}</span></span><span class="mut">›</span></button>`; }
+function vAdmCoaches(){
+  const A=st.adm; let h=coachHead("Gestió","Entrenadors");
+  if(!A) return h+`<div class="empty">Carregant…</div>`;
+  h+=`<div class="stack" style="margin-top:12px">${A.coaches.map(c=>`<button class="sess" data-act="aCoach" data-id="${c.uid}">${athAvatar(c.uid,36)}<span class="t"><span class="t1">${esc(admLabel(c.uid)||userLabel(c.email))}</span><span class="t2">${c.athletes} atleta${c.athletes===1?"":"s"}${c.owns?" · admin de "+esc(c.owns):c.member?" · "+esc(c.member):""}</span></span><span class="mut">›</span></button>`).join("")||`<div class="empty">Cap entrenador.</div>`}</div>`;
+  h+=`<p class="note" style="margin-top:10px">Per fer entrenador algú, obre'l a <b>Atletes</b> i toca <b>Fer entrenador</b>.</p>`;
+  return h;
+}
+function vAdmClubs(){
+  const A=st.adm; let h=coachHead("Gestió","Clubs");
+  if(!A) return h+`<div class="empty">Carregant…</div>`;
+  h+=A.clubs.length?`<div class="stack" style="margin-top:12px">${A.clubs.map(k=>`<button class="sess" data-act="aClub" data-id="${k.id}"><span class="t"><span class="t1">${esc(k.name)}</span><span class="t2">Admin: ${esc(admLabel(k.owner))} · ${k.coaches.length} entrenador${k.coaches.length===1?"":"s"} · ${k.athletes} atleta${k.athletes===1?"":"s"} · ${k.link?"link actiu ("+k.link.uses+")":"sense link"}</span></span><span class="mut">›</span></button>`).join("")}</div>`:`<div class="empty" style="margin-top:12px">Encara no hi ha cap club. Els crea cada entrenador des de Jo › Club.</div>`;
+  return h;
+}
+function vAdmUsers(){
+  const A=st.adm; let h=coachHead("Gestió","Atletes i comptes");
+  if(!A) return h+`<div class="empty">Carregant…</div>`;
+  const L=A.users.filter(u=>!u.admin);
+  h+=`<input class="in-t" id="adm-q" placeholder="Cerca per nom o usuari" autocomplete="off" style="margin-top:12px">`;
+  h+=`<div class="stack" style="margin-top:10px">${L.map(admUserRow).join("")||`<div class="empty">Cap compte.</div>`}</div>`;
+  return h;
+}
+function sheetAdmUser(uid){
+  const u=admUser(uid); if(!u) return; sheetState={kind:"admuser",uid};
+  const others=(st.adm.coaches||[]).filter(c=>c.uid!==uid&&!(u.coaches||[]).includes(c.uid));
+  let h=`<div class="row" style="gap:12px;align-items:center">${athAvatar(uid,52)}<div style="flex:1;min-width:0">${sheetHead(u.name||userLabel(u.email),"@"+userLabel(u.email)+" · alta "+fmtShort(String(u.created).slice(0,10)))}</div></div>`;
+  h+=`<div class="eyebrow" style="margin-top:14px">Entrenadors</div>`;
+  h+=(u.coaches||[]).length?(u.coaches.map(c=>`<div class="sess" style="cursor:default;margin-top:6px"><span class="t"><span class="t1">${esc(admLabel(c))}</span></span><button class="btn ghost" style="padding:6px 10px;font-size:12px;color:var(--red)" data-act="aUnlink" data-c="${c}">Desvincular</button></div>`).join("")):`<div class="small mut" style="margin-top:6px">No té cap entrenador.</div>`;
+  if(others.length) h+=`<div class="row" style="gap:8px;margin-top:10px"><select class="in-t" id="au-coach" style="flex:1">${others.map(c=>`<option value="${c.uid}">${esc(admLabel(c.uid)||userLabel(c.email))}</option>`).join("")}</select><button class="btn pri" style="flex:none" data-act="aLink">Vincular</button></div>`;
+  h+=`<div class="field"><label for="au-iid">ID d'intervals.icu</label><div class="row" style="gap:8px"><input class="in-t" id="au-iid" value="${esc(u.intervals||"")}" placeholder="i123456" style="flex:1" ${(u.coaches||[]).length?"":"disabled"}><button class="btn" style="flex:none" data-act="aIid" ${(u.coaches||[]).length?"":"disabled"}>Guardar</button></div>${(u.coaches||[]).length?"":`<div class="note">Primer vincula'l a un entrenador.</div>`}</div>`;
+  h+=`<div class="err" id="au-err"></div>`;
+  h+=`<button class="btn block" style="margin-top:12px" data-act="aView" data-id="${uid}">👁 Veure la seva app</button>`;
+  h+=u.coach?`<button class="btn block" style="margin-top:8px;color:var(--red);border-color:var(--red)" data-act="aCoachOff" id="au-off">Treure el rol d'entrenador</button>`:`<button class="btn block" style="margin-top:8px" data-act="aCoachOn">⭐ Fer entrenador</button>`;
+  openSheet(h);
+}
+function sheetAdmCoach(uid){
+  const c=(st.adm.coaches||[]).find(x=>x.uid===uid); if(!c) return; sheetState={kind:"admcoach",uid};
+  const ath=(st.adm.users||[]).filter(u=>(u.coaches||[]).includes(uid));
+  let h=sheetHead(admLabel(uid)||userLabel(c.email),"@"+userLabel(c.email)+(c.owns?" · admin de "+c.owns:c.member?" · club "+c.member:""));
+  h+=`<div class="eyebrow" style="margin-top:12px">Atletes (${ath.length})</div>`+(ath.length?`<div class="stack" style="margin-top:6px">${ath.map(admUserRow).join("")}</div>`:`<div class="small mut" style="margin-top:6px">Cap atleta.</div>`);
+  h+=`<button class="btn pri block" style="margin-top:14px" data-act="aInvite">+ Codi d'invitació en nom seu</button>`;
+  h+=`<button class="btn block" style="margin-top:8px" data-act="aUser" data-id="${uid}">Gestionar el compte</button>`;
+  openSheet(h);
+}
+function sheetAdmClub(id){
+  const k=(st.adm.clubs||[]).find(x=>x.id===id); if(!k) return; sheetState={kind:"admclub",id,confirm:false};
+  let h=sheetHead(k.name,"Admin: "+admLabel(k.owner));
+  h+=`<div class="small mut" style="margin-top:8px">${k.athletes} atletes · entrenadors: ${k.coaches.length?k.coaches.map(c=>esc(admLabel(c.uid)||userLabel(c.email))).join(", "):"cap"}</div>`;
+  h+=`<div class="field"><label for="ak-name">Nom</label><div class="row" style="gap:8px"><input class="in-t" id="ak-name" maxlength="60" value="${esc(k.name)}" style="flex:1"><button class="btn" style="flex:none" data-act="aClubRename">Guardar</button></div></div>`;
+  h+=k.link?`<div class="note" style="margin-top:10px">Link actiu · ${k.link.uses} altes</div><button class="btn block" style="margin-top:6px" data-act="aClubLinkOff">Desactivar el link</button>`:`<div class="note" style="margin-top:10px">Sense link actiu.</div>`;
+  h+=`<button class="btn block" style="margin-top:14px;color:var(--red);border-color:var(--red)" data-act="aClubDel" id="ak-del">Eliminar el club</button><p class="note" style="margin-top:6px">S'esborra el club i els entrenadors en perden l'accés. Els atletes continuen vinculats a l'admin del club i no es perd cap dada.</p>`;
+  openSheet(h);
+}
+async function admCall(fn,args,ok,errEl){
+  const {data,error}=await sb.rpc(fn,args);
+  if(error){ const m=error.message||""; const t=/ownsclub/.test(m)?"És l'admin d'un club: elimina primer el club.":/format/.test(m)?"L'ID ha de ser tipus i123456.":/self/.test(m)?"No es pot vincular amb si mateix.":"No s'ha pogut fer."; if(errEl) errEl.textContent=t; else toast(t); return null; }
+  await loadAdmin(); if(ok) toast(ok); render(); return data??true;
+}
+async function admAct(a,el){
+  const S=sheetState||{}, err=document.querySelector("#au-err");
+  if(a==="aLink"){ if(await admCall("admin_link",{p_coach:document.querySelector("#au-coach").value,p_athlete:S.uid,p_on:true},"Vinculat",err)) sheetAdmUser(S.uid); }
+  else if(a==="aUnlink"){ if(await admCall("admin_link",{p_coach:el.dataset.c,p_athlete:S.uid,p_on:false},"Desvinculat",err)) sheetAdmUser(S.uid); }
+  else if(a==="aIid"){ if(await admCall("admin_set_intervals",{p_athlete:S.uid,p_iid:document.querySelector("#au-iid").value},"Guardat",err)) sheetAdmUser(S.uid); }
+  else if(a==="aCoachOn"){ if(await admCall("admin_set_coach",{p_uid:S.uid,p_on:true},"Ara és entrenador",err)) sheetAdmUser(S.uid); }
+  else if(a==="aCoachOff"){ if(!S.confirm){ S.confirm=true; el.textContent="Segur? Perdrà tots els seus atletes. Toca de nou"; el.style.background="var(--red)"; el.style.color="#fff"; return; } if(await admCall("admin_set_coach",{p_uid:S.uid,p_on:false},"Rol d'entrenador tret",err)) sheetAdmUser(S.uid); }
+  else if(a==="aInvite"){ const code=await admCall("admin_invite",{p_coach:S.uid},null); if(code) openSheet(sheetHead("Codi d'invitació","En nom de "+admLabel(S.uid))+`<div class="preview" style="justify-content:center"><span class="big" style="font-size:40px;letter-spacing:6px">${esc(code)}</span></div><p class="small mut" style="margin:10px 0">L'atleta que el faci servir quedarà vinculat a aquest entrenador. Caduca d'aquí a 14 dies i només serveix una vegada.</p><button class="btn pri block" data-act="copyCode" data-code="${esc(code)}">Copiar missatge</button>`); }
+  else if(a==="aClubRename"){ if(await admCall("admin_club",{p_club:S.id,p_action:"rename",p_name:document.querySelector("#ak-name").value},"Nom canviat")) sheetAdmClub(S.id); }
+  else if(a==="aClubLinkOff"){ if(await admCall("admin_club",{p_club:S.id,p_action:"linkoff"},"Link desactivat")) sheetAdmClub(S.id); }
+  else if(a==="aClubDel"){ if(!S.confirm){ S.confirm=true; el.textContent="Segur? Toca de nou per eliminar"; el.style.background="var(--red)"; el.style.color="#fff"; return; } if(await admCall("admin_club",{p_club:S.id,p_action:"delete"},"Club eliminat")) closeSheet(); }
+}
+async function admView(uid){
+  const u=admUser(uid); closeSheet(); st.cview="athlete"; st.viewUid=uid; st.viewName=u?(u.name||userLabel(u.email)):"Atleta";
+  st.mode="loading"; render(); try{ await loadAll(); }catch(e){ toast("No s'han pogut carregar les dades."); }
+  st.mode="db"; st.view="avui"; st.plaTab="home"; render(); window.scrollTo(0,0);
+}
+
+/* ---------- biblioteca d'exercicis ---------- */
+const EX_GROUPS=["Cames","Glutis","Tronc","Tren superior","Pliometria","Prevenció","Mobilitat","Altres"];
+async function loadEx(force){ if(st.ex&&!force) return; try{ const {data,error}=await sb.from("exercises").select("*").order("grp").order("name"); st.ex=error?[]:(data||[]); st.exErr=!!error; }catch(e){ st.ex=[]; st.exErr=true; } }
+function exCanEdit(x){ return st.isAdmin||(st.isCoach&&(!x||x.owner===st.uid||!x.owner)); }
+function ytId(u){ const m=String(u||"").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/); return m?m[1]:null; }
+function exVideoUrl(x){ return x.video_path?sb.storage.from("exercise-videos").getPublicUrl(x.video_path).data.publicUrl:""; }
+function vExercises(edit){
+  if(!st.ex){ loadEx().then(render); return `<div class="empty" style="margin-top:12px">Carregant exercicis…</div>`; }
+  if(st.exErr&&!st.ex.length) return `<div class="empty" style="margin-top:12px">Encara no s'ha activat la biblioteca (falta executar schema_admin.sql a Supabase).</div>`;
+  const g=st.exG||"Tots", groups=["Tots",...EX_GROUPS.filter(x=>st.ex.some(e=>e.grp===x))];
+  let h=`<input class="in-t" id="ex-q" placeholder="Cerca un exercici" autocomplete="off" style="margin-top:12px">`;
+  h+=`<div class="chips" style="margin-top:10px">${groups.map(c=>`<button class="chip" data-act="exG" data-g="${c}" style="${g===c?"background:var(--brand);color:var(--on-brand);border-color:var(--brand)":""}">${c}</button>`).join("")}</div>`;
+  const L=st.ex.filter(e=>g==="Tots"||e.grp===g);
+  h+=`<div class="stack" style="margin-top:10px">${L.map(e=>`<button class="sess" data-act="exOpen" data-id="${e.id}" data-q="${esc((e.name+" "+e.grp+" "+(e.equipment||"")).toLowerCase())}"><span style="width:40px;height:40px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">${e.video_path||ytId(e.youtube)?"🎬":"🏋️"}</span><span class="t"><span class="t1">${esc(e.name)}</span><span class="t2">${esc(e.grp)}${e.equipment?" · "+esc(e.equipment):""}</span></span><span class="mut">›</span></button>`).join("")||`<div class="empty">No hi ha cap exercici en aquest grup.</div>`}</div>`;
+  if(edit) h+=`<button class="btn pri block" style="margin-top:12px" data-act="exEdit">+ Nou exercici</button>`;
+  return h;
+}
+function exBind(root){ const q=root.querySelector("#ex-q"); if(!q) return; q.value=st.exQ||""; q.addEventListener("input",()=>{ st.exQ=q.value; const t=q.value.trim().toLowerCase(); root.querySelectorAll("[data-act='exOpen']").forEach(r=>r.style.display=!t||r.dataset.q.includes(t)?"":"none"); }); if(st.exQ) q.dispatchEvent(new Event("input")); }
+function sheetEx(id){
+  const x=(st.ex||[]).find(e=>e.id===id); if(!x) return; sheetState={kind:"ex",id};
+  const yt=ytId(x.youtube), vu=exVideoUrl(x);
+  let h=sheetHead(x.name,x.grp+(x.equipment?" · "+x.equipment:""));
+  if(vu) h+=`<video src="${esc(vu)}" controls playsinline preload="metadata" style="width:100%;border-radius:14px;margin-top:12px;background:#000;max-height:60vh"></video>`;
+  else if(yt) h+=`<div style="position:relative;padding-top:56.25%;margin-top:12px;border-radius:14px;overflow:hidden;background:#000"><iframe src="https://www.youtube-nocookie.com/embed/${yt}?rel=0" title="${esc(x.name)}" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe></div>`;
+  else h+=`<div class="empty" style="margin-top:12px">Encara no té vídeo.</div>`;
+  if(x.description) h+=`<p style="margin:14px 0 0;line-height:1.5">${esc(x.description)}</p>`;
+  h+=`<a class="btn block" style="margin-top:14px;text-align:center" href="https://www.youtube.com/results?search_query=${encodeURIComponent(x.name+" tècnica exercici")}" target="_blank" rel="noopener">🔎 Buscar-lo a YouTube</a>`;
+  if(exCanEdit(x)) h+=`<button class="btn pri block" style="margin-top:8px" data-act="exEdit" data-id="${x.id}">Editar${!vu&&!yt?" · afegir vídeo":""}</button>`;
+  openSheet(h);
+}
+function sheetExEdit(id){
+  const x=id?(st.ex||[]).find(e=>e.id===id):null; sheetState={kind:"exedit",id:id||null,clear:false,confirm:false};
+  const sys=x&&!x.owner&&!st.isAdmin;
+  let h=sheetHead(x?"Editar exercici":"Nou exercici",sys?"Exercici de la biblioteca: pots afegir-hi el vídeo i retocar-lo":"");
+  h+=`<div class="field"><label for="xe-name">Nom</label><input class="in-t" id="xe-name" maxlength="80" value="${esc(x?.name||"")}" placeholder="Esquat goblet"></div>
+  <div class="f2"><div class="field"><label for="xe-grp">Grup</label><select class="in-t" id="xe-grp">${EX_GROUPS.map(g=>`<option ${(x?.grp||"Cames")===g?"selected":""}>${g}</option>`).join("")}</select></div><div class="field"><label for="xe-eq">Material</label><input class="in-t" id="xe-eq" maxlength="60" value="${esc(x?.equipment||"")}" placeholder="Manuella, goma…"></div></div>
+  <div class="field"><label for="xe-desc">Com es fa</label><textarea class="in-t" id="xe-desc" rows="4" maxlength="800" placeholder="Posició inicial, moviment i errors a evitar">${esc(x?.description||"")}</textarea></div>
+  <div class="field"><label for="xe-yt">Enllaç de YouTube</label><input class="in-t" id="xe-yt" value="${esc(x?.youtube||"")}" placeholder="https://youtu.be/…" autocomplete="off"></div>
+  <div class="field"><label for="xe-file">O puja el teu vídeo (màx. 50 MB)</label><input class="in-t" id="xe-file" type="file" accept="video/mp4,video/quicktime,video/webm">${x?.video_path?`<div class="note">Ja té un vídeo pujat. Si en tries un altre, el substitueix. <button type="button" class="mut" style="text-decoration:underline" data-act="exClearVid">Treure el vídeo</button></div>`:`<div class="note">Si hi ha vídeo pujat, es mostra aquest en lloc del de YouTube.</div>`}</div>
+  <div class="err" id="xe-err"></div><button class="btn pri block" data-act="exSave" id="xe-save">Guardar</button>
+  ${x&&(st.isAdmin||x.owner===st.uid)?`<button class="btn block" style="margin-top:8px;color:var(--red);border-color:var(--red)" data-act="exDel" id="xe-del">Eliminar</button>`:""}`;
+  openSheet(h);
+}
+async function exSave(){
+  const S=sheetState, q=i=>document.querySelector(i), err=q("#xe-err"), btn=q("#xe-save");
+  const name=q("#xe-name").value.trim(), yt=q("#xe-yt").value.trim(), file=q("#xe-file").files[0];
+  if(!name){ err.textContent="Posa el nom."; return; }
+  if(yt&&!ytId(yt)){ err.textContent="L'enllaç de YouTube no és vàlid."; return; }
+  if(file&&file.size>50*1024*1024){ err.textContent="El vídeo pesa més de 50 MB. Retalla'l o exporta'l més lleuger."; return; }
+  const old=S.id?(st.ex||[]).find(e=>e.id===S.id):null;
+  const row={name,grp:q("#xe-grp").value,equipment:q("#xe-eq").value.trim()||null,description:q("#xe-desc").value.trim()||null,youtube:yt||null};
+  btn.disabled=true; btn.textContent=file?"Pujant el vídeo…":"Guardant…";
+  try{
+    if(file){ const ext=(file.name.split(".").pop()||"mp4").toLowerCase().replace(/[^a-z0-9]/g,"")||"mp4", path=`${st.uid}/${Date.now()}.${ext}`;
+      const up=await sb.storage.from("exercise-videos").upload(path,file,{contentType:file.type||"video/mp4",upsert:false}); if(up.error) throw up.error;
+      row.video_path=path; }
+    else if(S.clear) row.video_path=null;
+    const r=S.id?await sb.from("exercises").update(row).eq("id",S.id):await sb.from("exercises").insert({...row,owner:st.uid});
+    if(r.error) throw r.error;
+    if(old?.video_path&&(row.video_path!==undefined)&&row.video_path!==old.video_path) sb.storage.from("exercise-videos").remove([old.video_path]).catch(()=>{});
+  }catch(e){ btn.disabled=false; btn.textContent="Guardar"; err.textContent=/size|large|413/i.test(e.message||"")?"El vídeo és massa gran.":/mime|type/i.test(e.message||"")?"Format no admès: fes servir MP4, MOV o WebM.":"No s'ha pogut guardar."; return; }
+  await loadEx(true); closeSheet(); render(); toast("Exercici guardat");
+}
+async function exDel(el){
+  const S=sheetState; if(!S.confirm){ S.confirm=true; el.textContent="Segur? Toca de nou per eliminar"; el.style.background="var(--red)"; el.style.color="#fff"; return; }
+  const x=(st.ex||[]).find(e=>e.id===S.id); const {error}=await sb.from("exercises").delete().eq("id",S.id);
+  if(error){ toast("No s'ha pogut eliminar."); return; }
+  if(x?.video_path) sb.storage.from("exercise-videos").remove([x.video_path]).catch(()=>{});
+  await loadEx(true); closeSheet(); render(); toast("Exercici eliminat");
+}
+
 /* ---------- navegació ---------- */
 function coachTabs(){
   const t=st.cview, tabs=[["panel","Panell",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>'],["plan","Planificar",TAB_ICONS.setmana],["lib","Entrenos",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>'],["anal","Anàlisi",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>'],["jo","Jo",TAB_ICONS.pla]];
@@ -1154,7 +1334,7 @@ function coachTabs(){
 function renderCoach(app,banner){
   const v=st.cview||"panel";
   app.innerHTML=banner+(v==="panel"?vCoachPanel():v==="plan"?vCoachPlan():v==="lib"?vCoachLib():v==="anal"?vCoachAnal():vCoachJo());
-  coachTabs();
+  coachTabs(); exBind(app);
   if(v==="anal") drawCoachCharts();
 }
 async function coachOpenAthlete(uid){ st.cview="athlete"; const a=st.athletes.find(x=>x.athlete_id===uid); if(a?.intervals_id){ st.mode="loading"; render(); try{ await sb.functions.invoke("intervals-sync",{body:{action:"store",uid}}); }catch(e){} } await viewAthlete(uid); }
@@ -1580,7 +1760,7 @@ function saveZones(){
 function vPla(){
   const t=st.plaTab;
   if (!t || t==="home") return vProfile();
-  const TT={setmanes:["Temporada","Setmanes"],macros:["Temporada","Macrocicles"],tests:["Rendiment","Tests"],pes:["Rendiment","Pes"],zfc:["Rendiment","Zones de FC"],ritmes:["Rendiment","Ritmes"],zftp:["Rendiment","FTP i zones"],coef:["Configuració","Coeficients"]}[t]||["Jo",""];
+  const TT={exer:["Entrenament","Biblioteca d'exercicis"],setmanes:["Temporada","Setmanes"],macros:["Temporada","Macrocicles"],tests:["Rendiment","Tests"],pes:["Rendiment","Pes"],zfc:["Rendiment","Zones de FC"],ritmes:["Rendiment","Ritmes"],zftp:["Rendiment","FTP i zones"],coef:["Configuració","Coeficients"]}[t]||["Jo",""];
   let h=`<div class="top"><div><button class="btn ghost" style="padding:6px 10px;font-size:13px;margin-bottom:8px" data-act="plaTab" data-t="home">‹ Jo</button><div class="eyebrow">${TT[0]}</div><h1>${TT[1]}</h1></div></div>`;
   if (t==="setmanes"){
     const s0=monday(startDate()); const cur=monday(todayStr());
@@ -1597,6 +1777,8 @@ function vPla(){
     h+=`<div class="row between" style="margin:14px 0 10px"><span class="note" style="margin:0">Un macrocicle per competició objectiu. Les dates no s'han de solapar.</span><button class="btn pri" style="padding:9px 14px;font-size:14px" data-act="editMacro">+ Nou</button></div><div class="stack">`;
     h+= list.length ? list.map(m=>{ const wks=Math.max(0,Math.round((diffD(m.end,m.start)+1)/7)); return `<button class="wkrow" data-act="editMacro" data-id="${esc(m.id)}"><span class="stripe" style="background:${m.color}"></span><span class="wkn" style="font-size:16px;color:${m.color}">${wks}<span class="small mut" style="display:block;font-size:10px">SETM.</span></span><span style="min-width:0"><span style="display:block;font-weight:600">${esc(m.name)}</span><span class="small mut">${fmtShort(m.start)} – ${fmtShort(m.end)}</span></span><span class="small" style="text-align:right">${m.race?`${esc(m.race)}<span class="mut" style="display:block">${isDate(m.raceDate)?fmtShort(m.raceDate):""}</span>`:""}</span></button>`; }).join("") : `<div class="empty">Encara no hi ha macrocicles. Crea'n un per a cada competició objectiu.</div>`;
     h+=`</div>`;
+  } else if (t==="exer"){
+    h+=vExercises(false);
   } else if (t==="tests"){
     h+=vTestsWrap();
   } else if (t==="pes"){
@@ -1628,7 +1810,7 @@ function vProfile(){
     <div class="tile"><div class="lab">VFC normal</div><div class="val" style="font-size:26px">${rg?`${rg.lo}–${rg.hi}`:"–"}</div><div class="sub">ms</div></div></div>`;
   h+=`<h2>Temporada</h2><div class="plist">${row("plaTab","macros","Macrocicles",m?`Ara: ${esc(m.name)}`:`${macros.length} creats`)}${row("plaTab","setmanes","Setmanes",`${nPlan} de 52 planificades · inici ${isDate(p.start)?fmtShort(p.start):"–"}`)}</div>`;
   const lt=tests[0];
-  h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","zfc","Zones de FC",p.lthr?`LTHR ${p.lthr}${p.hrMax?" · màx "+p.hrMax:""} ppm`:"Posa la teva LTHR")}${row("plaTab","zftp","FTP i zones de potència",p.ftp?`FTP ${p.ftp} W${lastKg()?" · "+(p.ftp/lastKg()).toFixed(2)+" W/kg":""}`:"Posa el teu FTP")}${row("plaTab","ritmes","Ritmes de cursa i natació",p.vam||p.thrPace||p.css?[p.vam?"VAM "+kmh(p.vam)+" km/h":"",p.thrPace?"llindar "+fmtTime(p.thrPace)+"/km":"",p.css?"CSS "+fmtTime(p.css)+"/100 m":""].filter(Boolean).join(" · "):"Es calculen amb els tests")}${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
+  h+=`<h2>Rendiment</h2><div class="plist">${row("plaTab","zfc","Zones de FC",p.lthr?`LTHR ${p.lthr}${p.hrMax?" · màx "+p.hrMax:""} ppm`:"Posa la teva LTHR")}${row("plaTab","zftp","FTP i zones de potència",p.ftp?`FTP ${p.ftp} W${lastKg()?" · "+(p.ftp/lastKg()).toFixed(2)+" W/kg":""}`:"Posa el teu FTP")}${row("plaTab","ritmes","Ritmes de cursa i natació",p.vam||p.thrPace||p.css?[p.vam?"VAM "+kmh(p.vam)+" km/h":"",p.thrPace?"llindar "+fmtTime(p.thrPace)+"/km":"",p.css?"CSS "+fmtTime(p.css)+"/100 m":""].filter(Boolean).join(" · "):"Es calculen amb els tests")}${row("plaTab","tests","Tests",lt?`Últim: ${esc(lt.type==="altre"?(lt.name||"Altre"):(TEST_TYPES[lt.type]?.label||""))} · ${testVal(lt)}`:"Encara no n'hi ha cap")}${row("plaTab","exer","Biblioteca d'exercicis","Com es fa cada exercici, amb vídeo")}${row("plaTab","pes","Pes",lastW?`${r1(st.weights[lastW].kg)} kg · ${fmtShort(lastW)}`:"Sense registres")}</div>`;
   if (st.viewUid){
     h+=`<h2>Atleta</h2><div class="plist">${row("athSettings","","ID d'intervals.icu i vincle",esc((st.athletes.find(a=>a.athlete_id===st.viewUid)||{}).intervals_id||"Sense rellotge connectat"))}${row("viewSelf","","Tornar al meu perfil","")}</div><p class="small mut" style="margin-top:8px">Pots editar la seva planificació (setmanes, pla diari, macrocicles i competicions). Les sessions i els controls del matí són seus.</p>`;
     return h;
@@ -1674,11 +1856,13 @@ function render(){
   if (st.mode==="onb"){ app.innerHTML=vOnboarding(); document.getElementById("tabs").innerHTML=""; return; }
   if (st.mode==="error"){ app.innerHTML=`<div class="empty" style="margin-top:40px">No s'ha pogut carregar l'app. Revisa la connexió i torna-ho a provar.</div>`; return; }
   else if (st.stale) banner=`<div class="banner">Encara no s'han pogut carregar totes les dades. El que veus pot no estar al dia.</div>`;
+  if (st.isAdmin && st.cview!=="athlete"){ if(st.mode==="loading"){ adminTabs(); return; } renderAdmin(app,banner); return; }
   if (st.isCoach && st.cview!=="athlete"){ if(st.mode==="loading"&&st.cview!=="plan"){ coachTabs(); return; } renderCoach(app,banner); return; }
   if (st.mode==="loading"){ renderTabs(); return; }
-  if (st.viewUid) banner+=`<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Atleta: <b>${esc(st.viewName)}</b></span><button class="btn" style="padding:6px 12px" data-act="viewSelf">${st.isCoach?"← Panell":"Tornar a mi"}</button></div>`;
+  if (st.viewUid) banner+=`<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Atleta: <b>${esc(st.viewName)}</b></span><button class="btn" style="padding:6px 12px" data-act="viewSelf">${st.isCoach?"← Panell":st.isAdmin?"← Gestió":"Tornar a mi"}</button></div>`;
   const v = st.view;
   app.innerHTML = banner + (v==="avui"?vAvui():v==="setmana"?vSetmana():v==="grafics"?vGrafics():vPla());
+  exBind(app);
   renderTabs();
   if (v==="grafics" && (st.grTab||"cal")==="anal") drawCharts();
   if (v==="pla" && st.plaTab==="pes") drawWeight("cw");
@@ -2479,6 +2663,20 @@ document.addEventListener("click", e=>{
   switch(a){
     case "go": if(el.dataset.v==="avui"&&st.view==="avui") st.planDay=null; st.view=el.dataset.v; if(st.view==="setmana") st.weekRef=monday(todayStr()); if(st.view==="pla") st.plaTab="home"; render(); window.scrollTo(0,0); break;
     case "close": closeSheet(); break;
+    case "aGo": st.aview=el.dataset.v; render(); window.scrollTo(0,0); break;
+    case "aRefresh": loadAdmin().then(()=>{ render(); toast("Actualitzat"); }); break;
+    case "aUser": sheetAdmUser(el.dataset.id); break;
+    case "aCoach": sheetAdmCoach(el.dataset.id); break;
+    case "aClub": sheetAdmClub(el.dataset.id); break;
+    case "aView": admView(el.dataset.id); break;
+    case "aLink": case "aUnlink": case "aIid": case "aCoachOn": case "aCoachOff": case "aInvite": case "aClubRename": case "aClubLinkOff": case "aClubDel": admAct(a,el); break;
+    case "exOpen": sheetEx(el.dataset.id); break;
+    case "exEdit": sheetExEdit(el.dataset.id||null); break;
+    case "exSave": exSave(); break;
+    case "exDel": exDel(el); break;
+    case "exClearVid": sheetState.clear=true; el.closest(".note").textContent="El vídeo es traurà en guardar."; break;
+    case "exG": st.exG=el.dataset.g; render(); break;
+    case "libMode": st.libMode=el.dataset.m; render(); break;
     case "clubName": sheetClubName(); break;
     case "clubSave": clubSave(); break;
     case "clubCoaches": sheetClubCoaches(); break;
@@ -2573,7 +2771,7 @@ document.addEventListener("click", e=>{
     case "pickPhoto": pickPhoto(el.dataset.k==="cover"?"cover":"photo"); break;
     case "toggleMascot": { const m=avatar()!==IMG_RUN; closeSheet(); write("profile",null,{mascot:m}); toast(m?"Mascota posada":"Mascota treta"); break; }
     case "delPhoto": { const pr={...(st.profile||{})}; delete pr[el.dataset.k==="cover"?"cover":"photo"]; st.profile=pr; closeSheet(); write("profile",null,{}); toast("Foto treta"); break; }
-    case "viewSelf": if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
+    case "viewSelf": if(st.isAdmin){ st.cview="admin"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); break; } if(st.isCoach){ st.cview="panel"; st.viewUid=null; st.viewName=""; render(); window.scrollTo(0,0); loadAthData().then(render); } else viewAthlete(null); break;
     case "invite": createInvite(); break;
     case "copyCode": { const msg=`Hola! Per entrar a M.Endurance: obre https://mendurance.app , toca «Crear un compte» i posa aquest codi d'invitació: ${el.dataset.code}`; navigator.clipboard?.writeText(msg).then(()=>toast("Missatge copiat"),()=>toast(el.dataset.code)); break; }
     case "coachLink": if(!st.myLink) sheetRedeem(); else toast("Ja estàs connectat amb el teu entrenador"); break;
