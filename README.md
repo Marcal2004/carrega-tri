@@ -2,7 +2,8 @@
 
 App de control de càrrega de triatló.
 
-- Web: https://marcal2004.github.io/carrega-tri/
+- Web: https://mendurance.app (abans marcal2004.github.io/carrega-tri)
+- Context complet per treballar-hi amb Claude: `CLAUDE.md`
 - Dades: Supabase (taula `docs`, protegida amb inici de sessió). L'esquema és a `schema.sql`.
 
 ## Sincronització amb Garmin (via intervals.icu)
