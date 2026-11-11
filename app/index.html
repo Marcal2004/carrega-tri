@@ -143,6 +143,18 @@ h2{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.06em;t
 .wl{line-height:1.5;font-size:15px}.wl.sub{padding-left:14px;position:relative}.wl.sub::before{content:"›";position:absolute;left:2px;color:var(--mut)}
 .wl.rep{font-family:var(--disp);font-weight:700;letter-spacing:.06em;color:var(--brand);margin-top:4px}
 .hl{color:var(--brand);font-weight:600}
+.xrow{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px}
+.xg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:6px}
+.xg label,.xsets label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--mut)}
+.xg .in-t{padding:8px 6px;font-size:15px}
+.xcard{background:var(--card);border-radius:12px;padding:12px;margin-top:8px;border-left:3px solid var(--forca)}
+.xn{font-weight:700;font-size:16px;line-height:1.25}
+.xsets{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px;margin-top:10px}
+.xsets label{text-align:center}
+.xsets .in-t{padding:8px 4px;text-align:center;font-size:16px}
+#restbar{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:1000;max-width:536px;margin:0 auto;background:var(--brand);color:var(--on-brand);border-radius:16px;padding:12px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-weight:600}
+#restbar b{font-family:var(--disp);font-size:30px;margin-left:auto;font-variant-numeric:tabular-nums}
+#restbar button{all:unset;cursor:pointer;padding:7px 12px;border-radius:999px;background:rgba(0,0,0,.18);font-size:14px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -1309,6 +1321,65 @@ async function admView(uid){
 
 /* ---------- biblioteca d'exercicis ---------- */
 const EX_GROUPS=["Cames","Glutis","Tronc","Tren superior","Pliometria","Prevenció","Mobilitat","Altres"];
+const EX_EQ=["Sense material","Gomes","Manuelles","Kettlebell","Barra","Màquina","Banc / caixa","Altres"];
+const EX_LV=["Principiant","Intermedi","Avançat"];
+const EX_GOAL=["Força","Potència","Core","Prevenció","Mobilitat"];
+const kgTxt=v=>String(v).replace(".",",");
+const restTxt=s=>s>=60?`${Math.floor(s/60)}′${s%60?String(s%60).padStart(2,"0")+"″":""}`:`${s}″`;
+function exText(ex){ return (ex||[]).map(x=>`${x.name} ${x.sets||"?"}×${x.reps||"?"}${x.kg!=null?` · ${kgTxt(x.kg)} kg`:""}${x.rest?` · descans ${restTxt(x.rest)}`:""}`).join("\n"); }
+function exPickOptions(){
+  if(!st.ex) return `<option value="">Carregant exercicis…</option>`;
+  return `<option value="">Tria un exercici de la biblioteca…</option>`+EX_GROUPS.map(g=>{ const L=st.ex.filter(e=>e.grp===g); return L.length?`<optgroup label="${esc(g)}">${L.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</optgroup>`:""; }).join("");
+}
+function exRowHTML(x){
+  return `<div class="xrow" data-exid="${esc(x.id||"")}" data-name="${esc(x.name)}"><div class="row between" style="gap:8px"><b style="font-size:14px">${esc(x.name)}</b><button type="button" class="mut" style="padding:2px 6px" data-act="xRm" aria-label="Treure ${esc(x.name)}">✕</button></div>
+  <div class="xg"><label>Sèries<input class="in-t x-sets" type="number" inputmode="numeric" min="1" max="20" value="${x.sets??3}"></label><label>Reps<input class="in-t x-reps" maxlength="12" value="${esc(x.reps??"10")}" placeholder="8-10"></label><label>Kg<input class="in-t x-kg" type="number" inputmode="decimal" step="0.5" min="0" value="${x.kg??""}" placeholder="—"></label><label>Descans (s)<input class="in-t x-rest" type="number" inputmode="numeric" step="15" min="0" max="600" value="${x.rest??90}"></label></div></div>`;
+}
+function readExRows(root,i){
+  return [...root.querySelectorAll(`#d-exl-${i} .xrow`)].map(r=>({id:r.dataset.exid||null,name:r.dataset.name,sets:num(r.querySelector(".x-sets").value),reps:r.querySelector(".x-reps").value.trim()||null,kg:num(r.querySelector(".x-kg").value),rest:num(r.querySelector(".x-rest").value)}));
+}
+function lastKg(x,date){
+  let best=null;
+  for(const [d,doc] of Object.entries(st.dayplan||{})){ if(d>=date||!doc||!Array.isArray(doc.items)) continue;
+    for(const it of doc.items){ if(!it||!Array.isArray(it.ex)||!it.log) continue;
+      it.ex.forEach((y,k)=>{ if((x.id&&y.id===x.id)||y.name===x.name){ const v=(it.log[k]||[]).filter(n=>typeof n==="number"); if(v.length&&(!best||d>best.date)) best={date:d,kg:Math.max(...v)}; } }); } }
+  return best;
+}
+function exCardsHTML(date,it){
+  const lg=it.log||{};
+  return `<h2 style="margin-top:18px">Exercicis</h2>`+it.ex.map((x,k)=>{ const prev=lastKg(x,date), sets=Math.max(1,Math.min(x.sets||1,10)), done=lg[k]||[];
+    return `<div class="xcard"><div class="row between" style="gap:10px;align-items:flex-start"><div style="min-width:0"><div class="xn">${k+1}. ${esc(x.name)}</div><div class="small mut" style="margin-top:2px">${x.sets||"?"} × ${esc(x.reps||"?")}${x.kg!=null?` · ${kgTxt(x.kg)} kg`:""}${x.rest?` · descans ${restTxt(x.rest)}`:""}</div>${prev?`<div class="small" style="color:var(--brand);margin-top:3px">Última vegada: ${kgTxt(prev.kg)} kg · ${fmtShort(prev.date)}</div>`:""}</div>${x.id?`<button class="btn ghost" style="flex:none;padding:8px 10px;font-size:13px" data-act="pxVid" data-id="${esc(x.id)}">▶ Vídeo</button>`:""}</div>
+    <div class="xsets">${Array.from({length:sets},(_,s)=>`<label>Sèrie ${s+1}<input class="in-t px-kg" data-k="${k}" data-s="${s}" type="number" inputmode="decimal" step="0.5" min="0" value="${typeof done[s]==="number"?done[s]:""}" placeholder="${x.kg!=null?kgTxt(x.kg):"kg"}" aria-label="${esc(x.name)}, sèrie ${s+1}, kg"></label>`).join("")}</div>
+    ${x.rest?`<button class="btn block" style="margin-top:8px;padding:9px" data-act="pxRest" data-s="${x.rest}">⏱ Descans ${restTxt(x.rest)}</button>`:""}</div>`; }).join("")
+    +`<p class="note" style="margin-top:8px">Apunta els kg que has fet a cada sèrie.</p><button class="btn pri block" style="margin-top:6px" data-act="pxSave">Guardar els kg</button>`;
+}
+async function pxSave(silent){
+  const S=sheetState; if(!S||S.kind!=="planItem") return;
+  const {date,idx}=S, dp=st.dayplan[date]; if(!dp) return;
+  const log={}; document.querySelectorAll(".sheet .px-kg").forEach(inp=>{ const v=num(inp.value); if(v!=null&&v>=0){ const k=inp.dataset.k; (log[k]=log[k]||[])[+inp.dataset.s]=v; } });
+  const all=Array.isArray(dp.items)?dp.items.map(x=>({...x})):[]; let n=-1,pos=-1;
+  for(let i=0;i<all.length;i++){ if(all[i]&&all[i].disc){ n++; if(n===idx){ pos=i; break; } } }
+  if(pos<0) return;
+  if(Object.keys(log).length) all[pos].log=log; else delete all[pos].log;
+  await write("dayplan",date,{...dp,items:all});
+  if(!silent){ toast("Kg guardats"); sheetPlanItem(date,idx); }
+}
+let restT=null;
+function startRest(sec){
+  stopRest(); const end=Date.now()+sec*1000; let el=document.getElementById("restbar");
+  if(!el){ el=document.createElement("div"); el.id="restbar"; el.setAttribute("role","timer"); document.body.appendChild(el); }
+  const tick=()=>{ const left=Math.max(0,Math.ceil((end-Date.now())/1000)); el.innerHTML=`<span>⏱ Descans</span><b>${Math.floor(left/60)}:${pad(left%60)}</b><button type="button" data-act="restStop">Parar</button>`; if(left<=0) stopRest(true); };
+  tick(); restT=setInterval(tick,250);
+}
+function stopRest(done){
+  if(restT){ clearInterval(restT); restT=null; }
+  const el=document.getElementById("restbar"); if(!el) return;
+  if(!done){ el.remove(); return; }
+  el.innerHTML=`<span>✅ Descans acabat</span><b>Som-hi!</b><button type="button" data-act="restStop">Tancar</button>`;
+  try{ navigator.vibrate&&navigator.vibrate([300,150,300]); }catch(e){}
+  try{ const A=window.AudioContext||window.webkitAudioContext, c=new A(), o=c.createOscillator(), g=c.createGain(); o.frequency.value=880; g.gain.value=.15; o.connect(g); g.connect(c.destination); o.start(); setTimeout(()=>{ o.stop(); c.close(); },450); }catch(e){}
+  setTimeout(()=>{ const e2=document.getElementById("restbar"); if(e2&&!restT) e2.remove(); },6000);
+}
 async function loadEx(force){ if(st.ex&&!force) return; try{ const {data,error}=await sb.from("exercises").select("*").order("grp").order("name"); st.ex=error?[]:(data||[]); st.exErr=!!error; }catch(e){ st.ex=[]; st.exErr=true; } }
 function exCanEdit(x){ return st.isAdmin||(st.isCoach&&(!x||x.owner===st.uid||!x.owner)); }
 function ytId(u){ const m=String(u||"").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/); return m?m[1]:null; }
@@ -1319,16 +1390,18 @@ function vExercises(edit){
   const g=st.exG||"Tots", groups=["Tots",...EX_GROUPS.filter(x=>st.ex.some(e=>e.grp===x))];
   let h=`<input class="in-t" id="ex-q" placeholder="Cerca un exercici" autocomplete="off" style="margin-top:12px">`;
   h+=`<div class="chips" style="margin-top:10px">${groups.map(c=>`<button class="chip" data-act="exG" data-g="${c}" style="${g===c?"background:var(--brand);color:var(--on-brand);border-color:var(--brand)":""}">${c}</button>`).join("")}</div>`;
-  const L=st.ex.filter(e=>g==="Tots"||e.grp===g);
-  h+=`<div class="stack" style="margin-top:10px">${L.map(e=>`<button class="sess" data-act="exOpen" data-id="${e.id}" data-q="${esc((e.name+" "+e.grp+" "+(e.equipment||"")).toLowerCase())}"><span style="width:40px;height:40px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">${e.video_path||ytId(e.youtube)?"🎬":"🏋️"}</span><span class="t"><span class="t1">${esc(e.name)}</span><span class="t2">${esc(e.grp)}${e.equipment?" · "+esc(e.equipment):""}</span></span><span class="mut">›</span></button>`).join("")||`<div class="empty">No hi ha cap exercici en aquest grup.</div>`}</div>`;
+  const sel=(id,cur,all,lab)=>`<select class="in-t" id="${id}" aria-label="${lab}" style="padding:9px 8px;font-size:14px"><option value="">${lab}</option>${all.map(v=>`<option ${cur===v?"selected":""}>${v}</option>`).join("")}</select>`;
+  h+=`<div class="f3" style="margin-top:8px;gap:6px">${sel("ex-eq",st.exEq,EX_EQ,"Material")}${sel("ex-lv",st.exLv,EX_LV,"Nivell")}${sel("ex-goal",st.exGoal,EX_GOAL,"Objectiu")}</div>`;
+  const L=st.ex.filter(e=>(g==="Tots"||e.grp===g)&&(!st.exEq||e.equip===st.exEq)&&(!st.exLv||e.level===st.exLv)&&(!st.exGoal||e.goal===st.exGoal));
+  h+=`<div class="stack" style="margin-top:10px">${L.map(e=>`<button class="sess" data-act="exOpen" data-id="${e.id}" data-q="${esc((e.name+" "+e.grp+" "+(e.equipment||"")).toLowerCase())}"><span style="width:40px;height:40px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">${e.video_path||ytId(e.youtube)?"🎬":"🏋️"}</span><span class="t"><span class="t1">${esc(e.name)}</span><span class="t2">${esc(e.grp)}${e.equip||e.equipment?" · "+esc(e.equip||e.equipment):""}${e.level?" · "+esc(e.level):""}</span></span><span class="mut">›</span></button>`).join("")||`<div class="empty">No hi ha cap exercici amb aquests filtres.</div>`}</div>`;
   if(edit) h+=`<button class="btn pri block" style="margin-top:12px" data-act="exEdit">+ Nou exercici</button>`;
   return h;
 }
-function exBind(root){ const q=root.querySelector("#ex-q"); if(!q) return; q.value=st.exQ||""; q.addEventListener("input",()=>{ st.exQ=q.value; const t=q.value.trim().toLowerCase(); root.querySelectorAll("[data-act='exOpen']").forEach(r=>r.style.display=!t||r.dataset.q.includes(t)?"":"none"); }); if(st.exQ) q.dispatchEvent(new Event("input")); }
-function sheetEx(id){
-  const x=(st.ex||[]).find(e=>e.id===id); if(!x) return; sheetState={kind:"ex",id};
+function exBind(root){ [["ex-eq","exEq"],["ex-lv","exLv"],["ex-goal","exGoal"]].forEach(([id,k])=>{ const s=root.querySelector("#"+id); if(s) s.addEventListener("change",()=>{ st[k]=s.value||""; render(); }); }); const q=root.querySelector("#ex-q"); if(!q) return; q.value=st.exQ||""; q.addEventListener("input",()=>{ st.exQ=q.value; const t=q.value.trim().toLowerCase(); root.querySelectorAll("[data-act='exOpen']").forEach(r=>r.style.display=!t||r.dataset.q.includes(t)?"":"none"); }); if(st.exQ) q.dispatchEvent(new Event("input")); }
+function sheetEx(id,back){
+  const x=(st.ex||[]).find(e=>e.id===id); if(!x){ toast("Aquest exercici ja no és a la biblioteca."); return; } sheetState={kind:"ex",id,back:back||null};
   const yt=ytId(x.youtube), vu=exVideoUrl(x);
-  let h=sheetHead(x.name,x.grp+(x.equipment?" · "+x.equipment:""));
+  let h=(back?`<button class="btn ghost" style="padding:6px 10px;font-size:13px;margin-bottom:10px" data-act="exBack">‹ Tornar a l'entreno</button>`:"")+sheetHead(x.name,[x.grp,x.equipment||x.equip,x.level,x.goal].filter(Boolean).join(" · "));
   if(vu) h+=`<video src="${esc(vu)}" controls playsinline preload="metadata" style="width:100%;border-radius:14px;margin-top:12px;background:#000;max-height:60vh"></video>`;
   else if(yt) h+=`<div style="position:relative;padding-top:56.25%;margin-top:12px;border-radius:14px;overflow:hidden;background:#000"><iframe src="https://www.youtube-nocookie.com/embed/${yt}?rel=0" title="${esc(x.name)}" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe></div>`;
   else h+=`<div class="empty" style="margin-top:12px">Encara no té vídeo.</div>`;
@@ -1343,6 +1416,7 @@ function sheetExEdit(id){
   let h=sheetHead(x?"Editar exercici":"Nou exercici",sys?"Exercici de la biblioteca: pots afegir-hi el vídeo i retocar-lo":"");
   h+=`<div class="field"><label for="xe-name">Nom</label><input class="in-t" id="xe-name" maxlength="80" value="${esc(x?.name||"")}" placeholder="Esquat goblet"></div>
   <div class="f2"><div class="field"><label for="xe-grp">Grup</label><select class="in-t" id="xe-grp">${EX_GROUPS.map(g=>`<option ${(x?.grp||"Cames")===g?"selected":""}>${g}</option>`).join("")}</select></div><div class="field"><label for="xe-eq">Material</label><input class="in-t" id="xe-eq" maxlength="60" value="${esc(x?.equipment||"")}" placeholder="Manuella, goma…"></div></div>
+  <div class="f3"><div class="field"><label for="xe-equip">Tipus de material</label><select class="in-t" id="xe-equip"><option value="">—</option>${EX_EQ.map(v=>`<option ${x?.equip===v?"selected":""}>${v}</option>`).join("")}</select></div><div class="field"><label for="xe-lv">Nivell</label><select class="in-t" id="xe-lv"><option value="">—</option>${EX_LV.map(v=>`<option ${x?.level===v?"selected":""}>${v}</option>`).join("")}</select></div><div class="field"><label for="xe-goal">Objectiu</label><select class="in-t" id="xe-goal"><option value="">—</option>${EX_GOAL.map(v=>`<option ${x?.goal===v?"selected":""}>${v}</option>`).join("")}</select></div></div>
   <div class="field"><label for="xe-desc">Com es fa</label><textarea class="in-t" id="xe-desc" rows="4" maxlength="800" placeholder="Posició inicial, moviment i errors a evitar">${esc(x?.description||"")}</textarea></div>
   <div class="field"><label for="xe-yt">Enllaç de YouTube</label><input class="in-t" id="xe-yt" value="${esc(x?.youtube||"")}" placeholder="https://youtu.be/…" autocomplete="off"></div>
   <div class="field"><label for="xe-file">O puja el teu vídeo (màx. 50 MB)</label><input class="in-t" id="xe-file" type="file" accept="video/mp4,video/quicktime,video/webm">${x?.video_path?`<div class="note">Ja té un vídeo pujat. Si en tries un altre, el substitueix. <button type="button" class="mut" style="text-decoration:underline" data-act="exClearVid">Treure el vídeo</button></div>`:`<div class="note">Si hi ha vídeo pujat, es mostra aquest en lloc del de YouTube.</div>`}</div>
@@ -1357,7 +1431,7 @@ async function exSave(){
   if(yt&&!ytId(yt)){ err.textContent="L'enllaç de YouTube no és vàlid."; return; }
   if(file&&file.size>50*1024*1024){ err.textContent="El vídeo pesa més de 50 MB. Retalla'l o exporta'l més lleuger."; return; }
   const old=S.id?(st.ex||[]).find(e=>e.id===S.id):null;
-  const row={name,grp:q("#xe-grp").value,equipment:q("#xe-eq").value.trim()||null,description:q("#xe-desc").value.trim()||null,youtube:yt||null};
+  const row={name,grp:q("#xe-grp").value,equipment:q("#xe-eq").value.trim()||null,description:q("#xe-desc").value.trim()||null,youtube:yt||null,equip:q("#xe-equip").value||null,level:q("#xe-lv").value||null,goal:q("#xe-goal").value||null};
   btn.disabled=true; btn.textContent=file?"Pujant el vídeo…":"Guardant…";
   try{
     if(file){ const ext=(file.name.split(".").pop()||"mp4").toLowerCase().replace(/[^a-z0-9]/g,"")||"mp4", path=`${st.uid}/${Date.now()}.${ext}`;
@@ -2490,7 +2564,7 @@ function sheetPlanItem(date,idx){
   sheetState={kind:"planItem",date,idx};
   let h=sheetHead(it.title||it.disc, fmtLong(date));
   h+=`<div class="row" style="gap:10px;margin-top:12px">${discIcon(it.disc)}<div style="flex:1;min-width:0"><b>${esc(it.disc)}</b><div class="small mut">${it.min?fmtMinH(it.min)+" previstos":"Sense durada"}${m?` · fet ${fmtMinH(m.min||0)}`:""}</div></div><span class="dot" style="width:14px;height:14px;background:${col};flex:none" title="${esc(lab)}"></span></div>`;
-  { const w=workHTML(it); if(w) h+=`<h2 style="margin-top:18px">Entreno</h2>`+w; }
+  { const hasEx=Array.isArray(it.ex)&&it.ex.length, w=workHTML(hasEx?(hasBlocks(it)?it:{}):it); if(w) h+=`<h2 style="margin-top:18px">Entreno</h2>`+w; if(hasEx) h+=exCardsHTML(date,it); }
   h+=`<h2 style="margin-top:18px">Compliment</h2><div class="grid3" style="gap:8px">${Object.entries(PST).map(([k,[l,c,g]])=>`<button class="btn" data-act="setPst" data-k="${k}" style="flex-direction:column;gap:4px;padding:10px 4px;${S.k===k?`background:${c};color:#0A0A0A`:`border:1px solid ${c};color:${c};background:transparent`}"><span style="font-size:18px">${g}</span><span style="font-size:12px">${l}</span></button>`).join("")}</div>`;
   h+=`<div class="small mut" style="margin-top:6px">${S.manual?`Marcat a mà. <button class="pill" data-act="setPst" data-k="">Tornar a automàtic</button>`:"Es calcula sol: verd si s'ha fet almenys el 85 % del temps previst, taronja si menys, vermell si el dia ha passat sense fer-lo."}</div>`;
   h+=zonesFor(it.disc,(it.title||"")+" "+(it.detail||"")+" "+BLK.map(([k])=>it[k]||"").join(" "));
@@ -2558,12 +2632,14 @@ function qAdd(src,id){
   const it={disc:w.disc,title:w.title||w.disc,min:w.min??null};
   if(hasBlocks(w)){ for(const [k] of BLK) if(w[k]) it[k]=w[k]; } else if(w.detail) it.main=w.detail;
   it.detail=composeDetail(it);
+  if(Array.isArray(w.ex)&&w.ex.length){ it.ex=w.ex.map(x=>({...x})); it.detail=[it.detail,exText(it.ex)].filter(Boolean).join("\n"); }
   const wt=w.watch||(/^\s*-\s/m.test(w.detail||"")?w.detail:""); if(wt) it.watch=wt;
   const d=st.dayplan[date]||{note:""};
   closeSheet(); write("dayplan",date,{...d,items:[...its,it]});
   toast(`Afegit: ${it.title} · ${fmtShort(date)}`);
 }
 function sheetDay(date){
+  if(!st.ex) loadEx().then(()=>document.querySelectorAll('.sheet select[id^="d-exp-"]').forEach(s=>{ s.innerHTML=exPickOptions(); }));
   const ex=st.dayplan[date]||{}; const items=[...dayItems(date)]; while(items.length<4) items.push({disc:"",title:"",detail:"",min:null});
   sheetState={kind:"day",date};
   let h=sheetHead("Pla del dia", fmtLong(date));
@@ -2571,13 +2647,14 @@ function sheetDay(date){
   items.forEach((t,i)=>{ h+=`<div class="card" style="margin-top:12px;padding:12px;background:var(--card)">${tO?`<div class="row" style="gap:6px;margin-bottom:8px"><select class="in-t" data-tpl="${i}" style="flex:1">${tO}</select><button type="button" class="btn ghost" style="padding:8px 10px;font-size:12px;flex:none" data-act="cTplFromDay" data-i="${i}" title="Desa com a plantilla">☆ Desa</button></div>`:st.isCoach?`<div style="text-align:right;margin-bottom:6px"><button type="button" class="btn ghost" style="padding:6px 10px;font-size:12px" data-act="cTplFromDay" data-i="${i}">☆ Desa com a plantilla</button></div>`:""}<div class="f2"><div class="field" style="margin-top:0"><label for="d-disc-${i}">Sessió ${i+1}</label><select class="in-t" id="d-disc-${i}"><option value="">—</option>${DISC.map(x=>`<option ${t.disc===x?"selected":""}>${x}</option>`).join("")}</select></div><div class="field" style="margin-top:0"><label for="d-min-${i}">Minuts</label><input class="in-t" id="d-min-${i}" type="number" inputmode="numeric" min="0" max="900" value="${t.min??""}"></div></div>
     <div class="field"><label for="d-title-${i}">Títol</label><input class="in-t" id="d-title-${i}" maxlength="60" value="${esc(t.title||"")}" placeholder="Rodatge suau 10 km"></div>
     ${(()=>{ const b=hasBlocks(t)?t:{main:t.detail||""}; const ph={warm:"10′ suau + 4 rectes",main:"5×1 km a 3:55/km\nrec. 2′ trot",cool:"10′ suau",notes:"Pla i recte · beu cada 20′"}; return BLK.map(([k,l,ic])=>`<div class="field"><label for="d-${k}-${i}">${ic} ${l}</label><textarea class="in-t" id="d-${k}-${i}" rows="${k==="main"?3:1}" maxlength="400" placeholder="${ph[k]}">${esc(b[k]||"")}</textarea></div>`).join(""); })()}
+    <div class="field" id="d-exw-${i}" style="${t.disc==="Força"?"":"display:none"}"><span class="flab">🏋️ Exercicis</span><div id="d-exl-${i}">${(t.ex||[]).map(exRowHTML).join("")}</div><div class="row" style="gap:6px;margin-top:6px"><select class="in-t" id="d-exp-${i}" style="flex:1;min-width:0" aria-label="Exercici per afegir">${exPickOptions()}</select><button type="button" class="btn" style="flex:none;padding:8px 12px" data-act="xAdd" data-i="${i}">＋ Afegir</button></div><div class="note">L'atleta veurà cada exercici amb el vídeo, podrà apuntar els kg i tindrà el temporitzador de descans.</div></div>
     <details style="margin-top:10px" ${t.watch?"open":""}><summary class="small" style="cursor:pointer;color:var(--brand);font-weight:600">⌚ Format rellotge (opcional)${t.iev?" · enviat":""}</summary>
     <textarea class="in-t" id="d-watch-${i}" rows="4" maxlength="1500" style="margin-top:6px;font-family:ui-monospace,monospace;font-size:13px" placeholder="- 15m 70-78% LTHR&#10;4x&#10;- 6m 93-95% Pace&#10;- 2m 70% LTHR&#10;- 10m 70% LTHR">${esc(t.watch||"")}</textarea>
     <div class="note">Format d'intervals.icu: un pas per línia que comença per «-», amb durada (10m, 400mtr, 2km) i objectiu (% LTHR, % Pace, % FTP). «4x» repeteix els passos de sota. Si ho deixes buit, al rellotge arriba un sol pas amb els minuts i el text com a notes.</div></details></div>`; });
   h+=`<div class="note">Un pas per línia. Ritmes (4:00/km), zones (Z2) i RPE es ressalten sols.</div>`;
   h+=`<div class="field"><label for="d-note">Nota del dia</label><input class="in-t" id="d-note" maxlength="120" value="${esc(ex.note||"")}" placeholder="Pista amb l'equip, descans…"></div>
   <div class="err" id="d-err"></div><button class="btn pri block" data-act="saveDay">Guardar</button>${watchIid()?`<div class="note" style="margin-top:8px;text-align:center">⌚ En guardar, l'entreno s'envia sol al rellotge.</div>`:""}${st.dayplan[date]?delButton():""}`;
-  openSheet(h, root=>{ root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-min-",t.min); if(hasBlocks(t)){ for(const [k] of BLK) set("d-"+k+"-",t[k]); } else { set("d-warm-",""); set("d-main-",t.detail); set("d-cool-",""); set("d-notes-",""); } const wt=t.watch||(/^\s*-\s/m.test(t.detail||"")?t.detail:""); set("d-watch-",wt); if(wt){ const dt=root.querySelector("#d-watch-"+i)?.closest("details"); if(dt) dt.open=true; } sel.value=""; })); });
+  openSheet(h, root=>{ root.querySelectorAll('select[id^="d-disc-"]').forEach(s=>s.addEventListener("change",()=>{ const w=root.querySelector("#d-exw-"+s.id.slice(7)); if(w) w.style.display=s.value==="Força"?"":"none"; })); root.querySelectorAll("select[data-tpl]").forEach(sel=>sel.addEventListener("change",()=>{ const t=(st.tpl||{})[sel.value]; if(!t) return; const i=sel.dataset.tpl, set=(k,v)=>{ const e=root.querySelector("#"+k+i); if(e) e.value=v??""; }; set("d-disc-",t.disc); set("d-title-",t.title); set("d-min-",t.min); if(hasBlocks(t)){ for(const [k] of BLK) set("d-"+k+"-",t[k]); } else { set("d-warm-",""); set("d-main-",t.detail); set("d-cool-",""); set("d-notes-",""); } const wt=t.watch||(/^\s*-\s/m.test(t.detail||"")?t.detail:""); set("d-watch-",wt); { const xl=root.querySelector("#d-exl-"+i), xw=root.querySelector("#d-exw-"+i); if(xl) xl.innerHTML=(t.ex||[]).map(exRowHTML).join(""); if(xw) xw.style.display=t.disc==="Força"?"":"none"; } if(wt){ const dt=root.querySelector("#d-watch-"+i)?.closest("details"); if(dt) dt.open=true; } sel.value=""; })); });
 }
 function saveDay(){
   const root=document.querySelector(".sheet"), g=i=>root.querySelector("#"+i).value.trim(), err=root.querySelector("#d-err"), items=[];
@@ -2585,7 +2662,8 @@ function saveDay(){
   for(let i=0;i<4;i++){ const disc=g("d-disc-"+i), title=g("d-title-"+i), min=num(g("d-min-"+i)), b={}; for(const [k] of BLK) b[k]=g(`d-${k}-${i}`);
     if(!disc){ if(title||BLK.some(([k])=>b[k])){ err.textContent=`Tria la disciplina de la sessió ${i+1}.`; return; } continue; }
     if(min!=null&&(min<0||min>900)){ err.textContent=`Revisa els minuts de la sessió ${i+1}.`; return; }
-    const it={disc,title,min,...b,detail:composeDetail(b)}; const w=g("d-watch-"+i); if(w) it.watch=w; const old=prevIts[i]; if(old&&old.status&&old.disc===disc) it.status=old.status; if(old&&old.iev&&old.disc===disc) it.iev=old.iev; items.push(it); }
+    const it={disc,title,min,...b,detail:composeDetail(b)}; const w=g("d-watch-"+i); if(w) it.watch=w; const old=prevIts[i];
+    if(disc==="Força"){ const exs=readExRows(root,i); if(exs.some(x=>!x.sets||x.sets<1||x.sets>20)){ err.textContent=`Revisa les sèries dels exercicis de la sessió ${i+1}.`; return; } if(exs.length){ it.ex=exs; it.detail=[it.detail,exText(exs)].filter(Boolean).join("\n"); if(old&&old.log&&old.disc===disc) it.log=old.log; } } if(old&&old.status&&old.disc===disc) it.status=old.status; if(old&&old.iev&&old.disc===disc) it.iev=old.iev; items.push(it); }
   const date=sheetState.date; closeSheet();
   write("dayplan",date,{items,note:g("d-note")});
   toast(watchIid()&&date>=todayStr()?"Pla guardat · s'envia al rellotge":"Pla del dia guardat");
@@ -2740,6 +2818,13 @@ document.addEventListener("click", e=>{
     case "aView": admView(el.dataset.id); break;
     case "aLink": case "aUnlink": case "aIid": case "aCoachOn": case "aCoachOff": case "aInvite": case "aClubRename": case "aClubLinkOff": case "aClubDel": admAct(a,el); break;
     case "exOpen": sheetEx(el.dataset.id); break;
+    case "exBack": { const b=sheetState&&sheetState.back; if(b) sheetPlanItem(b.date,b.idx); break; }
+    case "xAdd": { const i=el.dataset.i, root=document.querySelector(".sheet"), s=root.querySelector("#d-exp-"+i), x=(st.ex||[]).find(e=>e.id===s.value); if(!x){ toast("Tria primer un exercici."); break; } root.querySelector("#d-exl-"+i).insertAdjacentHTML("beforeend",exRowHTML({id:x.id,name:x.name})); s.value=""; break; }
+    case "xRm": el.closest(".xrow").remove(); break;
+    case "pxSave": pxSave(false); break;
+    case "pxVid": { const b={date:sheetState.date,idx:sheetState.idx}, id=el.dataset.id; pxSave(true).then(()=>loadEx()).then(()=>sheetEx(id,b)); break; }
+    case "pxRest": startRest(Number(el.dataset.s)||60); break;
+    case "restStop": stopRest(false); break;
     case "exEdit": sheetExEdit(el.dataset.id||null); break;
     case "exSave": exSave(); break;
     case "exDel": exDel(el); break;
@@ -2813,7 +2898,7 @@ document.addEventListener("click", e=>{
     case "cLibPlan": sheetLibPlan(el.dataset.src,el.dataset.id); break;
     case "cLibPlanGo": doLibPlan(); break;
     case "cLibSave": { const w=libGet("lib",el.dataset.id); if(w){ tplSave(newId(),{...w}).then(()=>{ toast("Desada a les teves plantilles"); render(); }); } break; }
-    case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } const b={}; for(const [k] of BLK) b[k]=g("d-"+k+"-"); tplSave(newId(),{disc,title,...b,detail:composeDetail(b),min:num(g("d-min-"))}); toast("Desada com a plantilla"); break; }
+    case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } const b={}; for(const [k] of BLK) b[k]=g("d-"+k+"-"); const exs=disc==="Força"?readExRows(root,i):[]; tplSave(newId(),{disc,title,...b,detail:[composeDetail(b),exText(exs)].filter(Boolean).join("\n"),min:num(g("d-min-")),...(exs.length?{ex:exs}:{})}); toast("Desada com a plantilla"); break; }
     case "editZones": if(st.viewUid){ toast("Els llindars els edita l'atleta des del seu compte."); break; } sheetZones(); break;
     case "saveZones": saveZones(); break;
     case "runZB": { const b=el.dataset.b; st.runZB=b; if(!st.viewUid) write("profile",null,{runZoneBase:b}); else render(); break; }
