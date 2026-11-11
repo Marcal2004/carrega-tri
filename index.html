@@ -1732,9 +1732,18 @@ function vZonesFTP(){
 function vRitmes(){
   const p=prof(), V=num(p.vam), TP=num(p.thrPace), C=num(p.css), LB=num(p.lthrBike);
   let h=`<div class="grid3" style="margin-top:12px"><div class="tile"><div class="lab">VAM</div><div class="val" style="font-size:24px">${V?kmh(V):"–"}</div><div class="sub">km/h</div></div><div class="tile"><div class="lab">Llindar</div><div class="val" style="font-size:24px">${TP?fmtTime(TP):"–"}</div><div class="sub">/km</div></div><div class="tile"><div class="lab">CSS</div><div class="val" style="font-size:24px">${C?fmtTime(C):"–"}</div><div class="sub">/100 m</div></div></div>`;
-  if(V){ const Z=[["Z1","Recuperació",0,.65],["Z2","Base aeròbica",.65,.75],["Z3","Tempo",.75,.85],["Z4","Llindar",.85,.95],["Z5","VO2 màx",.95,1.05]], pc=x=>fmtTime(3600/(V*x));
-    h+=`<h2>Zones de cursa</h2>`+zoneTable(Z.map(([z,n,lo,hi])=>[z,n,lo?`${pc(hi)}–${pc(lo)}`:`> ${pc(hi)}`,"",lo?`${Math.round(lo*100)}–${Math.round(hi*100)}% VAM`:`< ${Math.round(hi*100)}% VAM`]),"/km")+`<p class="note" style="margin-top:8px">Ritmes per km calculats amb la VAM del ${p.vamDate?esc(fmtShort(p.vamDate)):"darrer test"}.</p>`; }
-  else h+=`<div class="empty" style="margin-top:12px">Fes un test de VAM (Tests › Cursa) per calcular les zones de cursa.</div>`;
+  const ZB=st.runZB||p.runZoneBase||(V?"vam":"thr");
+  const segB=(k,l)=>`<button class="btn${ZB===k?" pri":""}" style="flex:1;padding:8px" data-act="runZB" data-b="${k}">${l}</button>`;
+  h+=`<h2>Zones de cursa</h2><div class="row" style="gap:8px;margin-top:8px">${segB("vam","A partir de la VAM")}${segB("thr","A partir del llindar")}</div>`;
+  if(ZB==="vam"){
+    if(V){ const Z=[["Z1","Recuperació",0,.65],["Z2","Base aeròbica",.65,.75],["Z3","Tempo",.75,.85],["Z4","Llindar",.85,.95],["Z5","VO2 màx",.95,1.05]], pc=x=>fmtTime(3600/(V*x));
+      h+=zoneTable(Z.map(([z,n,lo,hi])=>[z,n,lo?`${pc(hi)}–${pc(lo)}`:`> ${pc(hi)}`,"",lo?`${Math.round(lo*100)}–${Math.round(hi*100)}% VAM`:`< ${Math.round(hi*100)}% VAM`]),"/km")+`<p class="note" style="margin-top:8px">Ritmes per km calculats amb la VAM del ${p.vamDate?esc(fmtShort(p.vamDate)):"darrer test"}.</p>`; }
+    else h+=`<div class="empty" style="margin-top:12px">Fes un test de VAM (Tests › Cursa) o canvia a «A partir del llindar».</div>`;
+  } else {
+    if(TP){ const Z=[["Z1","Recuperació",0,.75],["Z2","Base aeròbica",.75,.85],["Z3","Tempo",.85,.95],["Z4","Llindar",.95,1.05],["Z5","VO2 màx",1.05,1.15]], pc=x=>fmtTime(TP/x);
+      h+=zoneTable(Z.map(([z,n,lo,hi])=>[z,n,lo?`${pc(hi)}–${pc(lo)}`:`> ${pc(hi)}`,"",lo?`${Math.round(lo*100)}–${Math.round(hi*100)}% vel. llindar`:`< ${Math.round(hi*100)}% vel. llindar`]),"/km")+`<p class="note" style="margin-top:8px">Ritmes per km calculats amb el ritme llindar (${fmtTime(TP)}/km${p.thrDate?" · "+esc(fmtShort(p.thrDate)):""}). Mateixa lògica que les zones de FC sobre la LTHR.</p>`; }
+    else h+=`<div class="empty" style="margin-top:12px">Fes un test de 3, 5 o 10 km (Tests › Cursa) per calcular el ritme llindar.</div>`;
+  }
   if(C){ const Z=[["Z1","Recuperació",15,null],["Z2","Aeròbic",8,15],["Z3","Tempo",3,8],["Z4","Llindar (CSS)",-2,3],["Z5","Ràpid",null,-2]], f=s=>fmtTime(C+s);
     h+=`<h2>Zones de natació</h2>`+zoneTable(Z.map(([z,n,a,b])=>[z,n,a==null?`< ${f(b)}`:b==null?`> ${f(a)}`:`${f(a)}–${f(b)}`,"",a==null?`CSS − 2″ o més ràpid`:b==null?`CSS + 15″ o més lent`:`CSS ${a>=0?"+":"−"}${Math.abs(a)}″ a ${b>=0?"+":"−"}${Math.abs(b)}″`]),"/100 m")+`<p class="note" style="margin-top:8px">Ritmes per 100 m calculats amb el CSS del ${p.cssDate?esc(fmtShort(p.cssDate)):"darrer test"}.</p>`; }
   else h+=`<div class="empty" style="margin-top:12px">Fes el test de natació (Tests › Natació) per calcular el CSS.</div>`;
@@ -2157,7 +2166,7 @@ const kmh=v=>String(r1(v)).replace(".",",");
 function testCalc(t,p){
   p=p||prof(); const rows=[], upd={}, warn=[]; const T=TEST_TYPES[t.type]; if(!T||t.value==null) return {rows,upd,warn};
   const pct=thrPct(p), hmx=num(t.hrMax);
-  const setMax=()=>{ if(hmx&&hmx>=120&&hmx<=240){ rows.push(["FC màxima",hmx+" ppm"]); if(!num(p.hrMax)||hmx>num(p.hrMax)){ upd.hrMax=hmx; if(!num(p.lthr)){ upd.lthr=Math.round(hmx*0.9); rows.push(["LTHR estimada (90% FC màx)",upd.lthr+" ppm"]); } } } };
+  const setMax=()=>{ if(hmx&&hmx>=120&&hmx<=240){ rows.push(["FC màxima",hmx+" ppm"]); if(!num(p.hrMax)||hmx>num(p.hrMax)){ upd.hrMax=hmx; if(!num(p.lthr)&&upd.lthr==null){ upd.lthr=Math.round(hmx*0.9); rows.push(["LTHR estimada (90% FC màx)",upd.lthr+" ppm"]); } } } };
   if(T.kind==="kmh"||T.kind==="meters"){
     const v=testVam(t); if(!v||v<6||v>26){ warn.push("Revisa el valor: la VAM surt fora de rang."); return {rows,upd,warn}; }
     const thr=3600/(v*pct);
@@ -2166,9 +2175,9 @@ function testCalc(t,p){
   } else if(t.type==="run3k"||t.type==="run5k"||t.type==="run10k"){
     const pace=t.value/(T.dist/1000), add=t.type==="run3k"?22:t.type==="run5k"?12:3;
     rows.push(["Ritme mitjà",fmtTime(pace)+"/km"],["Ritme llindar estimat",fmtTime(pace+add)+"/km"]);
-    upd.thrPace=Math.round(pace+add);
+    upd.thrPace=Math.round(pace+add); upd.thrDate=t.date;
     if(num(p.thrPace)&&p.vamDate&&Math.abs(num(p.thrPace)-(pace+add))>10) warn.push(`No quadra amb el llindar de la VAM (${fmtTime(p.thrPace)}/km, diferència > 10 s/km): convé ajustar el % de la VAM.`);
-    if(t.type!=="run3k"&&num(t.fc)){ upd.lthr=Math.round(num(t.fc)-2); rows.push(["LTHR (FC 2a meitat − 2)",upd.lthr+" ppm"]); }
+    if(num(t.fc)&&num(t.fc)>=100&&num(t.fc)<=230){ const f=num(t.fc), is3=t.type==="run3k"; upd.lthr=Math.round(is3?f*0.96:f-2); rows.push([is3?"LTHR estimada (96% FC últims 1,5 km)":"LTHR (FC 2a meitat − 2)",upd.lthr+" ppm"]); }
     setMax();
   } else if(t.type==="ftp20"){
     const ftp=Math.round(t.value*0.95), kg=lastKg();
@@ -2209,9 +2218,9 @@ const TPROTO={
   {name:"VAM · 6 minuts",lvl:"Tots",obj:"Mesurar la VAM amb un test simple, que es pot fer sol i sense material.",data:["VAM (km/h)","Ritme llindar","FC màxima","LTHR estimada","Zones de cursa"],
    steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","6′","La màxima distància possible a pista"],["Dosificació","","1r minut controlat · del 2 al 4 constant · els 2 últims a fons"],["Mesura","","Metres exactes: voltes × 400 + l'última volta"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["VAM (km/h) = metres ÷ 100  (1.650 m → 16,5 km/h)","Llindar = 80% VAM (principiants) · 85% (amateurs)","Vàlid si el ritme no cau més d'un 5% al final"],zones:true},
-  {name:"Contrarellotge 3 km",lvl:"Principiants",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat"],
+  {name:"Contrarellotge 3 km",lvl:"Principiants",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC mitjana dels últims 1,5 km (no la de tot el test)"],
    steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","3 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau Z1"]],
-   calc:["Llindar ≈ ritme dels 3 km + 20–25 s/km","Si no quadra amb la VAM (±10 s/km), s'ajusta el %"]},
+   calc:["Llindar ≈ ritme dels 3 km + 20–25 s/km","LTHR ≈ 96% de la FC mitjana dels últims 1,5 km","Si no quadra amb la VAM (±10 s/km), s'ajusta el %"]},
   {name:"Contrarellotge 5 km",lvl:"Amateurs",obj:"Mesurar el rendiment real i comprovar que el ritme llindar calculat amb la VAM és correcte.",data:["Temps","Ritme mitjà","Parcials per km","FC 2a meitat","LTHR real"],
    steps:[["Escalfament","15′","10′ trot suau Z1–Z2 · 3 rectes de 20″ progressives amb 40″ caminant · 2′ de pausa"],["Test","5 km","A fons, ritme màxim sostingut. Volta a cada km"],["Dosificació","","1r km controlat · mantenir · últim km a fons"],["Tornada a la calma","10′","Trot molt suau Z1"]],
    calc:["Llindar ≈ ritme dels 5 km + 10–15 s/km","LTHR ≈ FC mitjana de la 2a meitat − 2–3 ppm"]}],
@@ -2303,7 +2312,7 @@ function sheetTest(id){
   <div class="field"><label for="t-val" id="t-val-l">Resultat</label><input class="in-t" id="t-val" value="${esc(ex.type==="altre"?(ex.text||""):valStr)}"><div class="note" id="t-val-n"></div></div>
   <div class="field" id="t-v2-f"><label for="t-v2">Temps 200 m</label><input class="in-t" id="t-v2" value="${ex.t200?fmtTime(ex.t200):""}" placeholder="3:10"></div>
   <div class="f2" id="t-x-f"><div class="field" id="t-hmx-f"><label for="t-hmx">FC màxima al test</label><input class="in-t" id="t-hmx" type="number" inputmode="numeric" min="120" max="240" value="${ex.hrMax??""}" placeholder="ppm"></div><div class="field" id="t-km-f"><label for="t-km">Distància (km)</label><input class="in-t" id="t-km" type="number" inputmode="decimal" step="0.1" value="${ex.km??""}" placeholder="15,2"></div></div>
-  <div class="f2"><div class="field"><label for="t-fc">FC mitjana (opcional)</label><input class="in-t" id="t-fc" type="number" inputmode="numeric" min="40" max="230" value="${ex.fc??""}" placeholder="ppm"></div><div class="field"><label for="t-note">Notes</label><input class="in-t" id="t-note" maxlength="80" value="${esc(ex.note||"")}" placeholder="Piscina 25 m, vent…"></div></div>
+  <div class="f2"><div class="field"><label for="t-fc" id="t-fc-l">FC mitjana (opcional)</label><input class="in-t" id="t-fc" type="number" inputmode="numeric" min="40" max="230" value="${ex.fc??""}" placeholder="ppm"><div class="note" id="t-fc-n"></div></div><div class="field"><label for="t-note">Notes</label><input class="in-t" id="t-note" maxlength="80" value="${esc(ex.note||"")}" placeholder="Piscina 25 m, vent…"></div></div>
   <div class="preview"><span class="mut">Equival a</span><span class="big" id="t-prev" style="font-size:22px">–</span></div><div id="t-calc" style="margin-top:10px"></div><div class="err" id="t-err"></div>
   <button class="btn pri block" data-act="saveTest">Guardar</button>${id?delButton():""}`;
   openSheet(h, root=>{
@@ -2318,6 +2327,8 @@ function sheetTest(id){
       root.querySelector("#t-hmx-f").style.display=isRun?"":"none";
       root.querySelector("#t-km-f").style.display=ty==="bike30"?"":"none";
       root.querySelector("#t-x-f").style.display=isRun||ty==="bike30"?"":"none";
+      const fcL=({run3k:["FC mitjana dels últims 1,5 km","Només la 2a meitat, NO la de tot el test (al Garmin: mitjana de la FC del km 1,5 al 3). D'aquí surt la LTHR (96 %)."],run5k:["FC mitjana dels últims 2,5 km","Només la 2a meitat, NO la de tot el test. D'aquí surt la LTHR."],run10k:["FC mitjana dels últims 5 km","Només la 2a meitat, NO la de tot el test. D'aquí surt la LTHR."]})[ty]||["FC mitjana (opcional)",""];
+      root.querySelector("#t-fc-l").textContent=fcL[0]; root.querySelector("#t-fc-n").textContent=fcL[1];
       const t=readTest(root); const v=t.value;
       root.querySelector("#t-prev").textContent = v!=null ? (testDerived(t)||testVal(t)) : "–";
       root.querySelector("#t-calc").innerHTML = v!=null ? calcHTML(t) : "";
@@ -2747,6 +2758,7 @@ document.addEventListener("click", e=>{
     case "cTplFromDay": { const i=el.dataset.i, root=document.querySelector(".sheet"), g=k=>root.querySelector("#"+k+i).value.trim(); const disc=g("d-disc-"), title=g("d-title-"); if(!disc||!title){ toast("Posa disciplina i títol."); break; } const b={}; for(const [k] of BLK) b[k]=g("d-"+k+"-"); tplSave(newId(),{disc,title,...b,detail:composeDetail(b),min:num(g("d-min-"))}); toast("Desada com a plantilla"); break; }
     case "editZones": if(st.viewUid){ toast("Els llindars els edita l'atleta des del seu compte."); break; } sheetZones(); break;
     case "saveZones": saveZones(); break;
+    case "runZB": { const b=el.dataset.b; st.runZB=b; if(!st.viewUid) write("profile",null,{runZoneBase:b}); else render(); break; }
     case "recInfo": sheetRecovery(el.dataset.date||todayStr()); break;
     case "sleepInfo": sheetSleep(el.dataset.date||todayStr()); break;
     case "acwrInfo": sheetAcwr(el.dataset.date||todayStr()); break;
