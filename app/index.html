@@ -1239,28 +1239,30 @@ async function dsSet(src,doc){
 }
 function dsLabel(src){ return src.t==="tpl"?`Setmana ${src.w} · ${DAYS_L[src.d]}`:fmtLong(src.date); }
 function dsOpen(src){ if(src.t==="tpl") sheetTplDay(src.id,src.w,src.d); else sheetQuickDay(src.date); }
-const STEP_K=[["warm","Escalfament"],["work","Treball"],["rec","Recuperació"],["cool","Tornada a la calma"]];
+const STEP_K=[["warm","Escalfament"],["work","Treball"],["rec","Recuperació"],["rest","Descans aturat"],["cool","Tornada a la calma"]];
+const STEP_I={warm:"warmup",work:"interval",rec:"recovery",rest:"rest",cool:"cooldown"};
 const STEP_U=["min","s","km","m"];
 const durH=(v,u)=>u==="min"?`${kgTxt(v)}′`:u==="s"?`${v}″`:u==="km"?`${kgTxt(v)} km`:`${v} m`;
-const durW=(v,u)=>u==="min"?`${v}m`:u==="s"?`${v}s`:u==="km"?`${v}km`:`${v}mtr`;
-function tgtOpts(disc){ return disc==="Ciclisme"?[["pw","Potència"],["hr","Pulsacions"]]:[["pace","Ritme"],["hr","Pulsacions"]]; }
+const durW=(v,u)=>{ if(u==="min"){ const t=Math.round(v*60), m=Math.floor(t/60), x=t%60; return m&&x?`${m}m${x}s`:m?`${m}m`:`${x}s`; } return u==="s"?`${v}s`:u==="km"?`${v}km`:`${v}mtr`; };
+function tgtOpts(disc){ return disc==="Ciclisme"?[["hr","Pulsacions"],["pw","Potència"]]:[["pace","Ritme"],["hr","Pulsacions"]]; }
 function tgtW(disc,tgt,z){ const i=+String(z).slice(1)-1; if(tgt==="hr"){ const [a,b]=ZPCT.hr[i]; return `${a}-${b}% LTHR`; } if(tgt==="pw"){ const [a,b]=ZPCT.pw[i]; return `${a}-${b}% FTP`; } const [a,b]=ZPCT[disc==="Natació"?"swim":"run"][i]; return `${a}-${b}% Pace`; }
 function stepsGen(steps,disc,tgt){
   const W=[],M=[],C=[],w=[]; let mins=0; const add=(v,u)=>{ if(u==="min") mins+=v; else if(u==="s") mins+=v/60; };
   for(const s of steps){
-    if(s.k==="set"){ M.push(`${s.n}× ${durH(s.a.v,s.a.u)} ${s.a.z} / ${durH(s.b.v,s.b.u)} ${s.b.z}`); w.push("",`${s.n}x`,`- ${durW(s.a.v,s.a.u)} ${tgtW(disc,tgt,s.a.z)}`,`- ${durW(s.b.v,s.b.u)} ${tgtW(disc,tgt,s.b.z)}`,""); for(let k=0;k<s.n;k++){ add(s.a.v,s.a.u); add(s.b.v,s.b.u); } }
-    else { (s.k==="warm"?W:s.k==="cool"?C:M).push(`${durH(s.v,s.u)} ${s.z}${s.k==="rec"?" (recuperació)":""}`); w.push(`- ${durW(s.v,s.u)} ${tgtW(disc,tgt,s.z)}`); add(s.v,s.u); }
+    if(s.k==="set"){ const st0=s.b.z==="Aturat"; M.push(`${s.n}× ${durH(s.a.v,s.a.u)} ${s.a.z} / ${durH(s.b.v,s.b.u)} ${st0?"descans aturat":s.b.z}`); w.push("",`Sèries ${s.n}x`,`- ${durW(s.a.v,s.a.u)} ${tgtW(disc,tgt,s.a.z)} intensity=interval`,st0?`- ${durW(s.b.v,s.b.u)} Rest intensity=rest`:`- ${durW(s.b.v,s.b.u)} ${tgtW(disc,tgt,s.b.z)} intensity=recovery`,""); for(let k=0;k<s.n;k++){ add(s.a.v,s.a.u); add(s.b.v,s.b.u); } }
+    else if(s.k==="rest"){ M.push(`${durH(s.v,s.u)} descans aturat`); w.push(`- ${durW(s.v,s.u)} Rest intensity=rest`); add(s.v,s.u); }
+    else { (s.k==="warm"?W:s.k==="cool"?C:M).push(`${durH(s.v,s.u)} ${s.z}${s.k==="rec"?" (recuperació)":""}`); w.push(`- ${durW(s.v,s.u)} ${tgtW(disc,tgt,s.z)} intensity=${STEP_I[s.k]||"active"}`); add(s.v,s.u); }
   }
   return {warm:W.join("\n"),main:M.join("\n"),cool:C.join("\n"),watch:w.join("\n").replace(/\n{3,}/g,"\n\n").trim(),mins:Math.round(mins)};
 }
-const zSel=(cls,z)=>`<select class="in-t ${cls}" aria-label="Zona">${["Z1","Z2","Z3","Z4","Z5"].map(x=>`<option ${x===z?"selected":""}>${x}</option>`).join("")}</select>`;
+const zSel=(cls,z,rest)=>`<select class="in-t ${cls}" aria-label="Zona">${["Z1","Z2","Z3","Z4","Z5",...(rest?["Aturat"]:[])].map(x=>`<option ${x===z?"selected":""}>${x}</option>`).join("")}</select>`;
 const uSel=(cls,u)=>`<select class="in-t ${cls}" aria-label="Unitat">${STEP_U.map(x=>`<option ${x===u?"selected":""}>${x}</option>`).join("")}</select>`;
 function stepsHTML(steps){
   if(!steps.length) return `<div class="small mut" style="margin-top:6px">Encara no hi ha passos. Afegeix-ne o escriu l'entreno a mà més avall.</div>`;
   return steps.map((s,i)=>s.k==="set"
     ?`<div class="stp" data-i="${i}" data-k="set"><div class="row between"><span class="small" style="display:flex;align-items:center;gap:6px"><b>Sèries</b><input class="in-t s-n" type="number" inputmode="numeric" min="1" max="50" value="${s.n}" style="width:62px;padding:6px" aria-label="Repeticions"> vegades</span><button type="button" class="stpx" data-act="stpRm" data-i="${i}" aria-label="Treure">✕</button></div>
       <div class="stps"><span>Treball</span><input class="in-t s-av" type="number" inputmode="decimal" min="0" step="any" value="${s.a.v}" aria-label="Durada del treball">${uSel("s-au",s.a.u)}${zSel("s-az",s.a.z)}</div>
-      <div class="stps"><span>Recuperació</span><input class="in-t s-bv" type="number" inputmode="decimal" min="0" step="any" value="${s.b.v}" aria-label="Durada de la recuperació">${uSel("s-bu",s.b.u)}${zSel("s-bz",s.b.z)}</div></div>`
+      <div class="stps"><span>Recuperació</span><input class="in-t s-bv" type="number" inputmode="decimal" min="0" step="any" value="${s.b.v}" aria-label="Durada de la recuperació">${uSel("s-bu",s.b.u)}${zSel("s-bz",s.b.z,1)}</div></div>`
     :`<div class="stp" data-i="${i}" data-k="one"><div class="stpg"><select class="in-t s-k" aria-label="Tipus de pas">${STEP_K.map(([k,l])=>`<option value="${k}" ${s.k===k?"selected":""}>${l}</option>`).join("")}</select><input class="in-t s-v" type="number" inputmode="decimal" min="0" step="any" value="${s.v}" aria-label="Durada">${uSel("s-u",s.u)}${zSel("s-z",s.z)}<button type="button" class="stpx" data-act="stpRm" data-i="${i}" aria-label="Treure">✕</button></div></div>`).join("");
 }
 function stepsRead(root){
@@ -3242,7 +3244,7 @@ document.addEventListener("click", e=>{
     case "itDel": confirmDel(el,itDel); break;
     case "qNote": { const d=sheetState.date, v=document.querySelector("#q-note").value.trim(); write("dayplan",d,{...(st.dayplan[d]||{items:[]}),note:v}); toast("Nota guardada"); break; }
     case "stpAdd": case "stpSet": { const root=document.querySelector(".sheet"), S=sheetState; S.steps=stepsRead(root); const sw=root.querySelector("#d-disc-0").value==="Natació";
-      S.steps.push(a==="stpSet"?{k:"set",n:5,a:sw?{v:100,u:"m",z:"Z4"}:{v:4,u:"min",z:"Z4"},b:sw?{v:20,u:"s",z:"Z1"}:{v:2,u:"min",z:"Z1"}}:(S.steps.length?{k:"work",v:sw?400:20,u:sw?"m":"min",z:"Z2"}:{k:"warm",v:sw?300:10,u:sw?"m":"min",z:"Z1"}));
+      S.steps.push(a==="stpSet"?{k:"set",n:5,a:sw?{v:100,u:"m",z:"Z4"}:{v:4,u:"min",z:"Z4"},b:sw?{v:20,u:"s",z:"Aturat"}:{v:2,u:"min",z:"Z1"}}:(S.steps.length?{k:"work",v:sw?400:20,u:sw?"m":"min",z:"Z2"}:{k:"warm",v:sw?300:10,u:sw?"m":"min",z:"Z1"}));
       stepsRedraw(root); break; }
     case "stpRm": { const root=document.querySelector(".sheet"), S=sheetState; S.steps=stepsRead(root); S.steps.splice(Number(el.dataset.i),1); stepsRedraw(root); break; }
     case "pWAdd": pWeekOp("add"); break;
