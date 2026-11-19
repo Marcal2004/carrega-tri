@@ -2186,6 +2186,17 @@ function vAnalisi(){
 
 /* ---------------- zones ---------------- */
 const HR_Z=[["Z1","Recuperació",0,.68],["Z2","Aeròbic / resistència",.69,.83],["Z3","Tempo",.84,.94],["Z4","Llindar",.95,1.05],["Z5","VO2 màx",1.06,null]];
+// Zones de FC per atleta (profile.hrZoneBase): "lthr" (Coggan, per defecte), "max" (% FC màxima) o "mix" (combinades: baixes per FC màx, altes per LTHR)
+const HRM_D={max:["60–70% FC màx","70–80% FC màx","80–87% FC màx","87–93% FC màx","93–100% FC màx"],mix:["60–70% FC màx","70% FC màx – 89% LTHR","89–96% LTHR","96–103% LTHR","> 103% LTHR"]};
+function hrStarts(p){ p=p||prof(); const M=num(p.hrMax), L=num(p.lthr), b=p.hrZoneBase; if(!M) return null;
+  if(b==="max") return [.6,.7,.8,.87,.93].map(f=>Math.ceil(M*f));
+  if(b==="mix"&&L&&L<M){ const s=[Math.ceil(.6*M),Math.ceil(.7*M),Math.ceil(.89*L),Math.ceil(.96*L),Math.ceil(1.03*L)]; for(let i=1;i<5;i++) s[i]=Math.min(Math.max(s[i],s[i-1]+1),M-(4-i)); return s; }
+  return null; }
+function hrByMax(p){ return hrStarts(p)?num((p||prof()).hrMax):0; }
+function hrMaxRows(M){ const p=prof(), s=hrStarts(p), D=HRM_D[p.hrZoneBase]; return HR_Z.map(([z,n],i)=>[z,n,s[i],i<4?s[i+1]-1:M,D[i]]); }
+// Tradueix un % de LTHR (zones de Coggan) a fracció de la FC màx dins la mateixa zona de l'atleta
+const LT_B=[0,.68,.83,.94,1.05,1.15];
+function lt2mx(x){ const p=prof(), s=hrStarts(p), M=num(p.hrMax), L=num(p.lthr)||M*.9, LB=LT_B.map(f=>f*L), PB=[0,s[1],s[2],s[3],s[4],M], v=x*L; let i=1; while(i<LB.length-1&&v>LB[i]) i++; return (PB[i-1]+(v-LB[i-1])*(PB[i]-PB[i-1])/(LB[i]-LB[i-1]))/M; }
 const PW_Z=[["Z1","Recuperació activa",0,.55],["Z2","Resistència",.56,.75],["Z3","Tempo",.76,.90],["Z4","Llindar",.91,1.05],["Z5","VO2 màx i anaeròbic",1.06,null]];
 const ZC=["#8B939C","#4DA3FF","#3DDC84","#FFD60A","#FF9F0A","#FF453A","#BF5AF2"];
 function zoneTable(rows,unit){
@@ -2194,7 +2205,9 @@ function zoneTable(rows,unit){
 function vZonesFC(){
   const p=prof(), L=num(p.lthr), mx=num(p.hrMax), rb=rhrBase(addD(todayStr(),1));
   let h=`<div class="grid3" style="margin-top:12px"><div class="tile"><div class="lab">LTHR</div><div class="val" style="font-size:26px">${L??"–"}</div><div class="sub">ppm llindar</div></div><div class="tile"><div class="lab">FC màx</div><div class="val" style="font-size:26px">${mx??"–"}</div><div class="sub">ppm</div></div><div class="tile"><div class="lab">FC repòs</div><div class="val" style="font-size:26px">${rb!=null?Math.round(rb):"–"}</div><div class="sub">mitjana 7 d</div></div></div>`;
-  if(L){ const rows=HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):(mx||null); return [z,n, i===0?`< ${Math.round(L*hi)+1}`:hi?`${a}–${b}`:`> ${a-1}${mx?" (màx "+mx+")":""}`, "", i===0?`< ${Math.round(hi*100)}% LTHR`:hi?`${Math.round(lo*100)}–${Math.round(hi*100)}% LTHR`:`> ${Math.round(lo*100)}% LTHR`]; });
+  const HM=hrByMax(p);
+  if(HM){ h+=`<h2>Zones</h2>`+zoneTable(hrMaxRows(HM).map(([z,n,a,b,d])=>[z,n,`${a}–${b}`,"",d])," ppm")+`<p class="note" style="margin-top:8px">${p.hrZoneBase==="mix"?`Zones combinades: les baixes per la FC màxima (${HM} ppm) i les altes per la LTHR (${L} ppm).`:`Zones per percentatge de la FC màxima (${HM} ppm).`} Als entrenos del rellotge, els % LTHR es tradueixen a aquestes mateixes zones.</p>`; }
+  else if(L){ const rows=HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):(mx||null); return [z,n, i===0?`< ${Math.round(L*hi)+1}`:hi?`${a}–${b}`:`> ${a-1}${mx?" (màx "+mx+")":""}`, "", i===0?`< ${Math.round(hi*100)}% LTHR`:hi?`${Math.round(lo*100)}–${Math.round(hi*100)}% LTHR`:`> ${Math.round(lo*100)}% LTHR`]; });
     h+=`<h2>Zones</h2>`+zoneTable(rows," ppm")+`<p class="note" style="margin-top:8px">Zones de Coggan sobre la FC al llindar (LTHR). Són les mateixes referències que fem servir als entrenos del rellotge (% LTHR).</p>`; }
   else h+=`<div class="empty" style="margin-top:12px">Posa la teva FC al llindar (LTHR) per calcular les zones.</div>`;
   h+=`<button class="btn pri block" style="margin-top:12px" data-act="editZones">Editar llindars</button>`;
@@ -2235,6 +2248,7 @@ function sheetZones(){
   let h=sheetHead("Llindars","Per calcular les zones");
   h+=`<div class="f2"><div class="field"><label for="z-lthr">FC al llindar (LTHR)</label><input class="in-t" id="z-lthr" type="number" inputmode="numeric" min="100" max="230" value="${p.lthr??""}" placeholder="187"></div><div class="field"><label for="z-max">FC màxima</label><input class="in-t" id="z-max" type="number" inputmode="numeric" min="120" max="240" value="${p.hrMax??""}" placeholder="200"></div></div>
   <div class="f2"><div class="field"><label for="z-ftp">FTP (W)</label><input class="in-t" id="z-ftp" type="number" inputmode="numeric" min="50" max="600" value="${p.ftp??""}" placeholder="250"></div><div class="field"><label for="z-ftpd">Data del test FTP</label><input class="in-t" id="z-ftpd" type="date" value="${esc(p.ftpDate||"")}"></div></div>
+  <div class="field"><label for="z-base">Zones de FC calculades per</label><select class="in-t" id="z-base"><option value="lthr"${!["max","mix"].includes(p.hrZoneBase)?" selected":""}>FC al llindar (LTHR) · Coggan</option><option value="max"${p.hrZoneBase==="max"?" selected":""}>% de la FC màxima (60·70·80·87·93 %)</option><option value="mix"${p.hrZoneBase==="mix"?" selected":""}>Combinades: FC màxima + LTHR</option></select></div>
   <div class="err" id="z-err"></div><button class="btn pri block" data-act="saveZones">Guardar</button>`;
   openSheet(h);
 }
@@ -2244,7 +2258,10 @@ function saveZones(){
   if(M!=null&&(M<120||M>240)){ err.textContent="La FC màxima ha d'estar entre 120 i 240."; return; }
   if(L!=null&&M!=null&&M<L){ err.textContent="La FC màxima ha de ser més alta que la LTHR."; return; }
   if(F!=null&&(F<50||F>600)){ err.textContent="L'FTP ha d'estar entre 50 i 600 W."; return; }
-  closeSheet(); write("profile",null,{lthr:L,hrMax:M,ftp:F,ftpDate:isDate(D)?D:null,...(L!==num(prof().lthr)?{lthrSrc:L!=null?"test":null}:{})}); toast("Llindars guardats");
+  const B=["max","mix"].includes(document.querySelector("#z-base")?.value)?document.querySelector("#z-base").value:"lthr";
+  if(B!=="lthr"&&M==null){ err.textContent="Per fer les zones amb la FC màxima cal posar-la."; return; }
+  if(B==="mix"&&L==null){ err.textContent="Per fer les zones combinades cal posar també la LTHR."; return; }
+  closeSheet(); write("profile",null,{hrZoneBase:B,lthr:L,hrMax:M,ftp:F,ftpDate:isDate(D)?D:null,...(L!==num(prof().lthr)?{lthrSrc:L!=null?"test":null}:{})}); toast("Llindars guardats");
 }
 function vPla(){
   const t=st.plaTab;
@@ -2646,7 +2663,7 @@ const kmh=v=>String(r1(v)).replace(".",",");
 function testCalc(t,p){
   p=p||prof(); const rows=[], upd={}, warn=[]; const T=TEST_TYPES[t.type]; if(!T||t.value==null) return {rows,upd,warn};
   const pct=thrPct(p), hmx=num(t.hrMax);
-  const setMax=()=>{ if(hmx&&hmx>=120&&hmx<=240){ rows.push(["FC màxima",hmx+" ppm"]); if(!num(p.hrMax)||hmx>num(p.hrMax)){ upd.hrMax=hmx; if(!num(p.lthr)&&upd.lthr==null){ upd.lthr=Math.round(hmx*0.9); upd.lthrSrc="est"; rows.push(["LTHR estimada (90% FC màx)",upd.lthr+" ppm"]); } } } };
+  const setMax=()=>{ if(hmx&&hmx>=120&&hmx<=240){ rows.push(["FC màxima",hmx+" ppm"]); if(hmx!==num(p.hrMax)){ upd.hrMax=hmx; } if(upd.lthr==null&&p.lthrSrc!=="test"&&Math.round(hmx*0.9)!==num(p.lthr)){ { upd.lthr=Math.round(hmx*0.9); upd.lthrSrc="est"; rows.push(["LTHR estimada (90% FC màx)",upd.lthr+" ppm"]); } } } };
   if(T.kind==="kmh"||T.kind==="meters"){
     const v=testVam(t); if(!v||v<6||v>26){ warn.push("Revisa el valor: la VAM surt fora de rang."); return {rows,upd,warn}; }
     const thr=3600/(v*pct);
@@ -2858,12 +2875,14 @@ function zoneVals(disc,zi){
   if(disc==="Carrera"){ const T=runThr(); if(T){ const [,,a,b]=RUN_PZ[zi]; out.push(a==null?`més ràpid de ${ft(T.sec*b)}/km`:b==null?`més lent de ${ft(T.sec*a)}/km`:`${ft(T.sec*a)}–${ft(T.sec*b)}/km`); } }
   if(disc==="Natació"){ const C=swimCSS(); if(C){ const [,,a,b]=SWIM_Z[zi]; out.push(a==null?`més ràpid de ${ft(C.sec+b)}/100 m`:b==null?`més lent de ${ft(C.sec+a)}/100 m`:`${ft(C.sec+a)}–${ft(C.sec+b)}/100 m`); } }
   if(disc==="Ciclisme"){ const F=num(p.ftp); if(F){ const [,,lo,hi]=PW_Z[zi]; out.push(zi===0?`< ${Math.round(F*hi)} W`:hi==null?`> ${Math.round(F*lo)} W`:`${Math.round(F*lo)}–${Math.round(F*hi)} W`); } }
-  const L=(disc==="Ciclisme"&&num(p.lthrBike))||num(p.lthr);
-  if(L){ const i=zi, hi=HR_Z[i][3], a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):null; out.push(i===0?`< ${Math.round(L*hi)+1} ppm`:hi?`${a}–${b} ppm`:`> ${a-1} ppm`); }
+  const L=(disc==="Ciclisme"&&num(p.lthrBike))||num(p.lthr), HM=hrByMax(p);
+  if(HM){ const r=hrMaxRows(HM)[zi]; out.push(`${r[2]}–${r[3]} ppm`); }
+  else if(L){ const i=zi, hi=HR_Z[i][3], a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):null; out.push(i===0?`< ${Math.round(L*hi)+1} ppm`:hi?`${a}–${b} ppm`:`> ${a-1} ppm`); }
   return out.join(" · ");
 }
 function pctVals(disc,lo,hi,k){
   const p=prof(), ft=s=>fmtTime(Math.round(s)); k=k.toLowerCase();
+  if(k==="lthr"&&hrByMax(p)){ const M=hrByMax(p), c=v=>Math.round(M*lt2mx(v/100)); return lo===hi?`${c(lo)} ppm`:`${c(lo)}–${c(hi)} ppm`; }
   if(k==="lthr"){ const L=(disc==="Ciclisme"&&num(p.lthrBike))||num(p.lthr); return L?(lo===hi?`${Math.round(L*lo/100)} ppm`:`${Math.round(L*lo/100)}–${Math.round(L*hi/100)} ppm`):""; }
   if(k==="ftp"){ const F=num(p.ftp); return F?(lo===hi?`${Math.round(F*lo/100)} W`:`${Math.round(F*lo/100)}–${Math.round(F*hi/100)} W`):""; }
   if(k==="pace"){ if(disc==="Natació"){ const C=swimCSS(); if(!C) return ""; return lo===hi?`${ft(C.sec*100/lo)}/100 m`:`${ft(C.sec*100/hi)}–${ft(C.sec*100/lo)}/100 m`; }
@@ -2938,7 +2957,8 @@ function zonesFor(disc,text){
     else h+=`<div class="empty" style="margin-top:14px">Sense CSS. Fes el test de 400 + 200 m (Pla › Tests) per veure els ritmes.</div>`; }
   if(disc==="Ciclisme"&&F){ const up=i=>Math.round(F*PW_Z[i][3]); h+=tbl("Potència de referència",PW_Z.map(([z,n,lo,hi],i)=>[z,n,i===0?`< ${up(0)} W`:hi?`${up(i-1)+1} – ${up(i)} W`:`> ${up(i-1)} W`]),`FTP ${F} W.`); }
   if(disc!=="Força"){
-    if(L) h+=tbl("Freqüència cardíaca",HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):null; return [z,n,i===0?`< ${Math.round(L*hi)+1} ppm`:hi?`${a} – ${b} ppm`:`> ${a-1} ppm`]; }),`Sobre LTHR${LB?" de bici":""} ${L} ppm${num(p.hrMax)?` · FC màx ${p.hrMax}`:""}.`);
+    if(hrByMax(p)) h+=tbl("Freqüència cardíaca",hrMaxRows(hrByMax(p)).map(([z,n,a,b])=>[z,n,`${a} – ${b} ppm`]),p.hrZoneBase==="mix"?`Combinades: FC màx ${hrByMax(p)} · LTHR ${num(p.lthr)} ppm.`:`Per % de FC màx (${hrByMax(p)} ppm).`);
+    else if(L) h+=tbl("Freqüència cardíaca",HR_Z.map(([z,n,lo,hi],i)=>{ const a=i?Math.round(L*HR_Z[i-1][3])+1:0, b=hi?Math.round(L*hi):null; return [z,n,i===0?`< ${Math.round(L*hi)+1} ppm`:hi?`${a} – ${b} ppm`:`> ${a-1} ppm`]; }),`Sobre LTHR${LB?" de bici":""} ${L} ppm${num(p.hrMax)?` · FC màx ${p.hrMax}`:""}.`);
     else h+=`<div class="empty" style="margin-top:14px">Sense LTHR. Posa-la a Pla › Zones de FC per veure les zones de pulsacions.</div>`; }
   return h;
 }
